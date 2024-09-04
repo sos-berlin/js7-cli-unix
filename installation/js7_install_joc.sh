@@ -51,6 +51,7 @@ systemd_service_dir=/usr/lib/systemd/system
 systemd_service_file=
 systemd_service_name=
 systemd_service_selinux=
+systemd_service_stop_timeout=60
 uninstall_joc=
 noinstall_joc=
 noconfig_joc=
@@ -84,7 +85,7 @@ client_keystore_alias=
 client_keystore_password=
 truststore_file=
 truststore_password=
-kill_joc=
+cancel_joc=
 license_key=
 license_bin=
 log_dir=
@@ -180,6 +181,7 @@ Usage()
     >&2 echo "    --service-dir=<directory>          | optional: systemd service directory, default: ${systemd_service_dir}"
     >&2 echo "    --service-file=<file>              | optional: path to a systemd service file that will be copied to <home>/jetty/bin/"
     >&2 echo "    --service-name=<name>              | optional: name of the systemd service to be created, default js7_joc"
+    >&2 echo "    --service-stop-timeout=<seconds>   | optional: timeout of the systemd service to stop JOC Cockpitt, default ${systemd_service_stop_timeout}"
     >&2 echo "    --logo-file=<file-name>            | optional: name of a logo file (.png, .jfif etc.) in <data>/webapps/root/ext/images"
     >&2 echo "    --logo-height=<number>             | optional: height of the logo in pixel"
     >&2 echo "    --logo-position=<top|bottom>       | optional: position of the logo in the login window: top, bottom, default: bottom"
@@ -199,7 +201,7 @@ Usage()
     >&2 echo "    --make-dirs                        | creates the specified directories if they do not exist"
     >&2 echo "    --make-service                     | creates the systemd service for JOC Cockpit"
     >&2 echo "    --restart                          | stops a running JOC Cockpit and starts JOC Cockpit after installation"
-    >&2 echo "    --kill                             | kills a running JOC Cockpit if used with the --restart switch"
+    >&2 echo "    --cancel                           | cancels a running JOC Cockpit if used with the --restart switch"
     >&2 echo ""
 }
 
@@ -331,9 +333,9 @@ StopJOC()
     else
         if [ -n "${restart_joc}" ]
         then
-            if [ -n "${kill_joc}" ]
+            if [ -n "${cancel_joc}" ]
             then
-                stop_option="kill"
+                stop_option="cancel"
             else
                 stop_option="stop"
             fi
@@ -587,6 +589,8 @@ Arguments()
                                     ;;
             --service-name=*)       systemd_service_name=$(echo "${option}" | sed 's/--service-name=//' | sed 's/^"//' | sed 's/"$//')
                                     ;;
+            --service-stop-timeout=*)   systemd_service_stop_timeout=$(echo "${option}" | sed 's/--service-stop-timeout=//' | sed 's/^"//' | sed 's/"$//')
+                                    ;;
             --exec-start=*)         exec_start=$(echo "${option}" | sed 's/--exec-start=//' | sed 's/^"//' | sed 's/"$//')
                                     ;;
             --exec-stop=*)          exec_stop=$(echo "${option}" | sed 's/--exec-stop=//' | sed 's/^"//' | sed 's/"$//')
@@ -651,7 +655,7 @@ Arguments()
                                     ;;
             --restart)              restart_joc=1
                                     ;;
-            --kill)                 kill_joc=1
+            --cancel|--kill)        cancel_joc=1
                                     ;;
             *)                      >&2 echo "unknown option: ${option}"
                                     Usage
@@ -1859,6 +1863,7 @@ Process()
 
         ${use_forced_sudo} sed -i'' -e "s/^StandardOutput[ ]*=[ ]*syslog+console/StandardOutput=journal+console/g" "${use_service_file}"
         ${use_forced_sudo} sed -i'' -e "s/^StandardError[ ]*=[ ]*syslog+console/StandardError=journal+console/g" "${use_service_file}"
+        ${use_forced_sudo} sed -i'' -e "s/^TimeoutStopSec[ ]*=[ ]*.*/TimeoutStopSec=${systemd_service_stop_timeout}/g" "${use_service_file}"
 
         if [ -n "${java_home}" ]
         then
@@ -2193,7 +2198,7 @@ End()
     unset logo_file
     unset logo_height
     unset logo_position
-    unset kill_joc
+    unset cancel_joc
     unset log_dir
     unset make_dirs
     unset patch
@@ -2217,6 +2222,7 @@ End()
     unset systemd_service_dir
     unset systemd_service_file
     unset systemd_service_name
+    unset systemd_service_stop_timeout
 
     unset backup_file
     unset base_dir

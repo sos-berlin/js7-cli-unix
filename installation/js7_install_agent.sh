@@ -22,7 +22,8 @@ set -e
 # Initialize variables
 # ------------------------------
 
-abort_agent=
+wait_agent=0
+failover_agent=0
 noinstall_agent=
 noyade_agent=
 useinstall_agent=
@@ -58,7 +59,9 @@ instance_script=
 systemd_service_dir=/usr/lib/systemd/system
 systemd_service_file=
 systemd_service_name=
-systemd_service_selinux=
+systemd_service_selinux=0
+systemd_service_failover=0
+systemd_service_stop_timeout=60
 java_home=
 java_options=
 pid_file_dir=
@@ -83,7 +86,7 @@ client_keystore_alias=
 client_keystore_password=
 truststore_file=
 truststore_password=
-kill_agent=
+cancel_agent=
 make_service=
 make_dirs=
 move_libs=
@@ -174,6 +177,7 @@ Usage()
     >&2 echo "    --service-dir=<directory>           | optional: systemd service directory, default: ${systemd_service_dir}"
     >&2 echo "    --service-file=<file>               | optional: path to a systemd service file that will be copied to <home>/bin/"
     >&2 echo "    --service-name=<identifier>         | optional: name of the systemd service to be created, default js7_agent_<http-port>"
+    >&2 echo "    --service-stop-timeout=<seconds>    | optional: timeout of the systemd service to stop the Agent, default ${systemd_service_stop_timeout}"
     >&2 echo ""
     >&2 echo "  Switches:"
     >&2 echo "    -h | --help                         | displays usage"
@@ -187,14 +191,16 @@ Usage()
     >&2 echo "    --uninstall-home                    | uninstalls Agent and removes <home> directory only"
     >&2 echo "    --uninstall-data                    | uninstalls Agent and removes <data> directory only"
     >&2 echo "    --service-selinux                   | use SELinux version of systemd service file"
+    >&2 echo "    --service-fail-over                 | apply fail-over option on Agent stop to systemd service file"
     >&2 echo "    --show-logs                         | shows log output of the script"
     >&2 echo "    --make-dirs                         | creates the specified directories if they do not exist"
     >&2 echo "    --make-service                      | creates the systemd service for the Agent"
     >&2 echo "    --move-libs                         | moves an existing Agent's lib directory instead of removing the directory"
     >&2 echo "    --remove-journal                    | removes an existing Agent's state directory that holds the journal files"
-    >&2 echo "    --restart                           | stops a running Agent and starts the Agent after installation"
-    >&2 echo "    --abort                             | aborts a running Agent if used with the --restart switch"
-    >&2 echo "    --kill                              | kills a running Agent if used with the --restart switch"
+    >&2 echo "    --restart                           | stops a running Agent including tasks and starts the Agent after installation"
+    >&2 echo "    --fail-over                         | performs fail-over in Agent Cluster if used with the --restart switch"
+    >&2 echo "    --wait                              | waits for running tasks in Agent if used with the --restart switch"
+    >&2 echo "    --cancel                            | cancels a running Agent if used with the --restart switch"
     >&2 echo ""
 }
 
@@ -294,15 +300,20 @@ StopAgent()
     else
         if [ -n "${restart_agent}" ]
         then
-            if [ -n "${kill_agent}" ]
+            if [ -n "${cancel_agent}" ]
             then
-                stop_option="kill"
+                stop_option="cancel"
             else
-                if [ -n "${abort_agent}" ]
+                if [ "${wait_agent}" -gt 0 ]
                 then
-                    stop_option="abort"
+                    stop_option="stop --timeout=never"
                 else
-                    stop_option="stop"
+                    if [ "${failover_agent}" -gt 0 ]
+                    then
+                        stop_option="stop --fail-over"
+                    else
+                        stop_option="stop"
+                    fi
                 fi
             fi
 
@@ -587,6 +598,8 @@ Arguments()
                                     ;;
             --service-name=*)       systemd_service_name=$(echo "${option}" | sed 's/--service-name=//' | sed 's/^"//' | sed 's/"$//')
                                     ;;
+            --service-stop-timeout=*)   systemd_service_stop_timeout=$(echo "${option}" | sed 's/--service-stop-timeout=//' | sed 's/^"//' | sed 's/"$//')
+                                    ;;
             --exec-start=*)         exec_start=$(echo "${option}" | sed 's/--exec-start=//' | sed 's/^"//' | sed 's/"$//')
                                     ;;
             --exec-stop=*)          exec_stop=$(echo "${option}" | sed 's/--exec-stop=//' | sed 's/^"//' | sed 's/"$//')
@@ -657,6 +670,8 @@ Arguments()
                                     ;;
             --service-selinux)      systemd_service_selinux=1
                                     ;;
+            --service-fail-over)    systemd_service_failover=1
+                                    ;;
             --show-logs)            show_logs=1
                                     ;;
             --make-dirs)            make_dirs=1
@@ -667,11 +682,13 @@ Arguments()
                                     ;;
             --remove-journal)       remove_journal=1
                                     ;;
-            --restart)              restart_agent=1
+            --restart|--abort)      restart_agent=1
                                     ;;
-            --abort)                abort_agent=1
+            --fail-over)            failover_agent=1
                                     ;;
-            --kill)                 kill_agent=1
+            --wait)                 wait_agent=1
+                                    ;;
+            --cancel|--kill)        cancel_agent=1
                                     ;;
             *)                      >&2 echo "unknown option: ${option}"
                                     Usage
@@ -1985,10 +2002,17 @@ Process()
         
                 ${use_forced_sudo} sed -i'' -e "s/<JS7_AGENT_USER>/${agent_user}/g" "${use_service_file}"
                 ${use_forced_sudo} sed -i'' -e "s/^User[ ]*=[ ]*.*/User=${agent_user}/g" "${use_service_file}"
-        
+                ${use_forced_sudo} sed -i'' -e "s/^TimeoutStopSec[ ]*=[ ]*.*/TimeoutStopSec=${systemd_service_stop_timeout}/g" "${use_service_file}"
                 ${use_forced_sudo} sed -i'' -e "s/<INSTALL_PATH>/$(echo "${real_agent_home}" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
 
-                if [ -n "${systemd_service_selinux}" ]
+                if [ "${systemd_service_failover}" -gt 0 ]
+                then
+                    service_stop_action="stop --fail-over"
+                else
+                    service_stop_action="stop"
+                fi
+
+                if [ "${systemd_service_selinux}" -gt 0 ]
                 then
                     line_no=$(< "${use_service_file}" sed -n '/^ExecStart/{=;q;}')
                     if [ -n "${line_no}" ] && [ "${line_no}" -gt 0 ]
@@ -2004,11 +2028,11 @@ Process()
                     fi
 
                     ${use_forced_sudo} sed -i'' -e "s/^ExecStart[ ]*=[ ]*.*/ExecStart=$(echo "/bin/sh -c \"${real_agent_home}/bin/agent_${http_port}.sh start\"" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
-                    ${use_forced_sudo} sed -i'' -e "s/^ExecStop[ ]*=[ ]*.*/ExecStop=$(echo "/bin/sh -c \"${real_agent_home}/bin/agent_${http_port}.sh stop\"" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
+                    ${use_forced_sudo} sed -i'' -e "s/^ExecStop[ ]*=[ ]*.*/ExecStop=$(echo "/bin/sh -c \"${real_agent_home}/bin/agent_${http_port}.sh ${service_stop_action}\"" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
                     ${use_forced_sudo} sed -i'' -e "s/^ExecReload[ ]*=[ ]*.*/ExecReload=$(echo "/bin/sh -c \"${real_agent_home}/bin/agent_${http_port}.sh restart\"" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
                 else
                     ${use_forced_sudo} sed -i'' -e "s/^ExecStart[ ]*=[ ]*.*/ExecStart=$(echo "${real_agent_home}/bin/agent_${http_port}.sh start" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
-                    ${use_forced_sudo} sed -i'' -e "s/^ExecStop[ ]*=[ ]*.*/ExecStop=$(echo "${real_agent_home}/bin/agent_${http_port}.sh stop" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
+                    ${use_forced_sudo} sed -i'' -e "s/^ExecStop[ ]*=[ ]*.*/ExecStop=$(echo "${real_agent_home}/bin/agent_${http_port}.sh stop ${service_stop_action}" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
                     ${use_forced_sudo} sed -i'' -e "s/^ExecReload[ ]*=[ ]*.*/ExecReload=$(echo "${real_agent_home}/bin/agent_${http_port}.sh restart" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
                 fi
 
@@ -2510,7 +2534,7 @@ End()
         fi        
     fi
 
-    unset abort_agent
+    unset wait_agent
     unset real_path_prefix
     unset agent_home
     unset agent_data
@@ -2548,6 +2572,8 @@ End()
     unset systemd_service_file
     unset systemd_service_name
     unset systemd_service_selinux
+    unset systemd_service_failover
+    unset systemd_service_stop_timeout
     unset agent_conf
     unset private_conf
     unset controller_id
@@ -2570,7 +2596,7 @@ End()
     unset truststore_file
     unset truststore_password
 
-    unset kill_agent
+    unset cancel_agent
     unset make_dirs
     unset make_service
     unset move_libs

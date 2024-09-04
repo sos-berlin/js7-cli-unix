@@ -22,7 +22,7 @@ set -e
 # Initialize variables
 # ------------------------------
 
-abort_controller=
+failover_controller=0
 uninstall_controller=
 noinstall_controller=
 real_path_prefix=
@@ -52,6 +52,8 @@ systemd_service_dir=/usr/lib/systemd/system
 systemd_service_file=
 systemd_service_name=
 systemd_service_selinux=
+systemd_service_failover=0
+systemd_service_stop_timeout=60
 java_home=
 java_options=
 pid_file_dir=
@@ -74,7 +76,7 @@ client_keystore_alias=
 client_keystore_password=
 truststore_file=
 truststore_password=
-kill_controller=
+cancel_controller=
 license_key=
 license_bin=
 log_dir=
@@ -165,6 +167,7 @@ Usage()
     >&2 echo "    --service-dir=<directory>           | optional: systemd service directory, default: ${systemd_service_dir}"
     >&2 echo "    --service-file=<file>               | optional: path to a systemd service file that will be copied to <home>/bin/"
     >&2 echo "    --service-name=<identifier>         | optional: name of the systemd service to be created, default js7_controller_<controller-id>"
+    >&2 echo "    --service-stop-timeout=<seconds>    | optional: timeout of the systemd service to stop the Agent, default ${systemd_service_stop_timeout}"
     >&2 echo ""
     >&2 echo "  Switches:"
     >&2 echo "    -h | --help                         | displays usage"
@@ -174,14 +177,15 @@ Usage()
     >&2 echo "    --no-install                        | skips Controller installation, performs configuration updates only"
     >&2 echo "    --uninstall                         | uninstalls Controller"
     >&2 echo "    --service-selinux                   | use SELinux version of systemd service file"
+    >&2 echo "    --service-fail-over                 | apply fail-over option on Controller stop to systemd service file"
     >&2 echo "    --show-logs                         | shows log output of the script"
     >&2 echo "    --make-dirs                         | creates the specified directories if they do not exist"
     >&2 echo "    --make-service                      | creates the systemd service for the Controller"
     >&2 echo "    --move-libs                         | moves an existing Controller's lib directory instead of removing the directory"
     >&2 echo "    --remove-journal                    | removes an existing Controller's state directory that holds the journal"
     >&2 echo "    --restart                           | stops a running Controller and starts the Controller after installation"
-    >&2 echo "    --abort                             | aborts a running Controller if used with the --restart switch"
-    >&2 echo "    --kill                              | kills a running Controller if used with the --restart switch"
+    >&2 echo "    --fail-over                         | performs fail-over in Controller Cluster if used with the --restart switch"
+    >&2 echo "    --cancel                            | cancels a Controller, performs fail-over in Controller Cluster if used with the --restart switch"
     >&2 echo ""
 }
 
@@ -281,13 +285,13 @@ StopController()
     else
         if [ -n "${restart_controller}" ]
         then
-            if [ -n "${kill_controller}" ]
+            if [ -n "${cancel_controller}" ]
             then
-                stop_option="kill"
+                stop_option="cancel"
             else
-                if [ -n "${abort_controller}" ]
+                if [ "${failover_controller}" -gt 0 ]
                 then
-                    stop_option="abort"
+                    stop_option="stop --fail-over"
                 else
                     stop_option="stop"
                 fi
@@ -575,6 +579,8 @@ Arguments()
                                     ;;
             --service-name=*)       systemd_service_name=$(echo "${option}" | sed 's/--service-name=//' | sed 's/^"//' | sed 's/"$//')
                                     ;;
+            --service-stop-timeout=*)   systemd_service_stop_timeout=$(echo "${option}" | sed 's/--service-stop-timeout=//' | sed 's/^"//' | sed 's/"$//')
+                                    ;;
             --exec-start=*)         exec_start=$(echo "${option}" | sed 's/--exec-start=//' | sed 's/^"//' | sed 's/"$//')
                                     ;;
             --exec-stop=*)          exec_stop=$(echo "${option}" | sed 's/--exec-stop=//' | sed 's/^"//' | sed 's/"$//')
@@ -633,6 +639,8 @@ Arguments()
                                     ;;
             --service-selinux)      systemd_service_selinux=1
                                     ;;
+            --service-fail-over)    systemd_service_failover=1
+                                    ;;
             --show-logs)            show_logs=1
                                     ;;
             --make-dirs)            make_dirs=1
@@ -645,9 +653,9 @@ Arguments()
                                     ;;
             --restart)              restart_controller=1
                                     ;;
-            --abort)                abort_controller=1
+            --fail-over|--abort)    failover_controller=1
                                     ;;
-            --kill)                 kill_controller=1
+            --cancel|--kill)        cancel_controller=1
                                     ;;
             *)                      >&2 echo "unknown option: ${option}"
                                     Usage
@@ -1800,7 +1808,15 @@ Process()
 
         ${use_forced_sudo} sed -i'' -e "s/<JS7_CONTROLLER_USER>/${controller_user}/g" "${use_service_file}"
         ${use_forced_sudo} sed -i'' -e "s/^User[ ]*=[ ]*.*/User=${controller_user}/g" "${use_service_file}"
+        ${use_forced_sudo} sed -i'' -e "s/^TimeoutStopSec[ ]*=[ ]*.*/TimeoutStopSec=${systemd_service_stop_timeout}/g" "${use_service_file}"
         ${use_forced_sudo} sed -i'' -e "s/<INSTALL_PATH>/$(echo "${real_controller_home}" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
+
+        if [ "${systemd_service_failover}" -gt 0 ]
+        then
+            service_stop_action="stop --fail-over"
+        else
+            service_stop_action="stop"
+        fi
 
         if [ -n "${systemd_service_selinux}" ]
         then
@@ -1818,11 +1834,11 @@ Process()
             fi
 
             ${use_forced_sudo} sed -i'' -e "s/^ExecStart[ ]*=[ ]*.*/ExecStart=$(echo "/bin/sh -c \"${real_controller_home}/bin/controller_instance.sh start\"" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
-            ${use_forced_sudo} sed -i'' -e "s/^ExecStop[ ]*=[ ]*.*/ExecStop=$(echo "/bin/sh -c \"${real_controller_home}/bin/controller_instance.sh stop\"" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
+            ${use_forced_sudo} sed -i'' -e "s/^ExecStop[ ]*=[ ]*.*/ExecStop=$(echo "/bin/sh -c \"${real_controller_home}/bin/controller_instance.sh ${service_stop_action}\"" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
             ${use_forced_sudo} sed -i'' -e "s/^ExecReload[ ]*=[ ]*.*/ExecReload=$(echo "/bin/sh -c \"${real_controller_home}/bin/controller_instance.sh restart\"" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
         else
             ${use_forced_sudo} sed -i'' -e "s/^ExecStart[ ]*=[ ]*.*/ExecStart=$(echo "${real_controller_home}/bin/controller_instance.sh start" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
-            ${use_forced_sudo} sed -i'' -e "s/^ExecStop[ ]*=[ ]*.*/ExecStop=$(echo "${real_controller_home}/bin/controller_instance.sh stop" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
+            ${use_forced_sudo} sed -i'' -e "s/^ExecStop[ ]*=[ ]*.*/ExecStop=$(echo "${real_controller_home}/bin/controller_instance.sh ${service_stop_action}" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
             ${use_forced_sudo} sed -i'' -e "s/^ExecReload[ ]*=[ ]*.*/ExecReload=$(echo "${real_controller_home}/bin/controller_instance.sh restart" | sed -e 's@/@\\\/@g')/g" "${use_service_file}"
         fi
 
@@ -2115,7 +2131,7 @@ End()
         fi        
     fi
 
-    unset abort_controller
+    unset failover_controller
     unset real_path_prefix
     unset controller_home
     unset controller_data
@@ -2149,6 +2165,7 @@ End()
     unset systemd_service_dir
     unset systemd_service_file
     unset systemd_service_name
+    unset systemd_service_stop_timeout
     unset controller_conf
     unset private_conf
     unset controller_primary_cert
@@ -2169,7 +2186,7 @@ End()
     unset truststore_file
     unset truststore_password
 
-    unset kill_controller
+    unset cancel_controller
     unset license_key
     unset license_bin
     unset log_dir

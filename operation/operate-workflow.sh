@@ -35,12 +35,12 @@ joc_cacert=
 joc_client_cert=
 joc_client_key=
 controller_id=
-timeout=15
+timeout=60
 make_dirs=
 show_logs=
 log_dir=
 log_dir=
-verbose=
+verbose=0
 action=
 
 item=
@@ -66,6 +66,10 @@ force=false
 notice_board=
 notice_id=
 notice_lifetime=
+
+audit_message=
+audit_time_spent=0
+audit_link=
 
 # ------------------------------
 # Inline Functions
@@ -100,7 +104,7 @@ Log()
 
 LogVerbose()
 {
-    if [ -n "${verbose}" ]
+    if [ "${verbose}" -gt 0 ]
     then
         if [ -n "${log_file}" ] && [ -f "${log_file}" ]
         then
@@ -157,6 +161,31 @@ Curl_Options()
     if [ "${joc_client_key}" != "" ]
     then
         curl_options+=(--key "${joc_client_key}")
+    fi
+    if
+    [ "${verbose}" -gt 1 ]
+    then
+        curl_options+=(--verbose)
+    fi
+}
+
+Audit_Log_Request()
+{
+    if [ -n "${audit_message}" ]
+    then
+        request_body="${request_body}, \"auditLog\": { \"comment\": \"${audit_message}\""
+
+        if [ "${audit_time_spent}" -gt 0 ]
+        then
+            request_body="${request_body}, \"timeSpent\": ${audit_time_spent}"
+        fi
+
+        if [ -n "${audit_link}" ]
+        then
+            request_body="${request_body}, \"ticketLink\": \"${audit_link}\""
+        fi
+
+        request_body="${request_body} }"
     fi
 }
 
@@ -318,7 +347,9 @@ Add_Order()
     fi
 
     request_body="${request_body}, \"forceJobAdmission\": ${force}"
-    request_body="${request_body} } ] }"
+    request_body="${request_body} } ]"
+    Audit_Log_Request
+    request_body="${request_body} }"
 
     LogVerbose ".... request:"
     LogVerbose "curl ${curl_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/orders/add"
@@ -335,7 +366,7 @@ Add_Order()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Add_Order() did not find object: ${response_json}"
+                LogWarning "Add_Order() could not find object: ${response_json}"
                 exit 3
             else
                 LogError "Add_Order() failed: ${response_json}"
@@ -345,7 +376,7 @@ Add_Order()
            Log "${ok}" 
         fi
     else
-        LogError "Addl_Order() failed: ${response_json}"
+        LogError "Add_Order() failed: ${response_json}"
         exit 4
     fi
 }
@@ -422,6 +453,7 @@ Cancel_Order()
 
     request_body="${request_body}, \"kill\": ${force}"
     request_body="${request_body}, \"deep\": ${recursive}"
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -439,7 +471,7 @@ Cancel_Order()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Cancel_Order() did not find objects: ${response_json}"
+                LogWarning "Cancel_Order() could not find objects: ${response_json}"
                 exit 3
             else
                 LogError "Cancel_Order() failed: ${response_json}"
@@ -524,6 +556,7 @@ Suspend_Order()
 
     request_body="${request_body}, \"kill\": ${force}"
     request_body="${request_body}, \"deep\": ${recursive}"
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -541,7 +574,7 @@ Suspend_Order()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Suspend_Order() did not find objects: ${response_json}"
+                LogWarning "Suspend_Order() could not find objects: ${response_json}"
                 exit 3
             else
                 LogError "Suspend_Order() failed: ${response_json}"
@@ -626,6 +659,7 @@ Resume_Order()
         request_body="${request_body} }"
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -643,7 +677,7 @@ Resume_Order()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Resume_Order() did not find objects: ${response_json}"
+                LogWarning "Resume_Order() could not find objects: ${response_json}"
                 exit 3
             else
                 LogError "Resume_Order() failed: ${response_json}"
@@ -711,6 +745,7 @@ Letrun_Order()
         request_body="${request_body} ]"
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -728,7 +763,7 @@ Letrun_Order()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Letrun_Order() did not find objects: ${response_json}"
+                LogWarning "Letrun_Order() could not find objects: ${response_json}"
                 exit 3
             else
                 LogError "Letrun_Order() failed: ${response_json}"
@@ -796,6 +831,7 @@ Confirm_Order()
         request_body="${request_body} ]"
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -813,7 +849,7 @@ Confirm_Order()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Confirm_Order() did not find objects: ${response_json}"
+                LogWarning "Confirm_Order() could not find objects: ${response_json}"
                 exit 3
             else
                 LogError "Confirm_Order() failed: ${response_json}"
@@ -837,6 +873,7 @@ Transfer_Order()
     then
         request_body="{ \"controllerId\": \"${controller_id}\""
         request_body="${request_body}, \"workflowId\": { \"path\": \"${workflow}\" }"
+        Audit_Log_Request
         request_body="${request_body} }"
     
         LogVerbose ".... request:"
@@ -854,7 +891,7 @@ Transfer_Order()
                 error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
                 if [ "${error_code}" = "JOC-400" ]
                 then
-                    LogWarning "Transfer_Order() did not find objects: ${response_json}"
+                    LogWarning "Transfer_Order() could not find objects: ${response_json}"
                     exit 3
                 else
                     LogError "Transfer_Order() failed: ${response_json}"
@@ -885,6 +922,7 @@ Transfer_Order()
         request_body="${request_body}, \"folders\": [ {\"folder\": \"$(dirname ${workflowPath})\"} ]"
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -903,7 +941,7 @@ Transfer_Order()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Transfer_Order() did not find workflow: ${response_json}"
+                LogWarning "Transfer_Order() could not find workflow: ${response_json}"
                 exit 3
             else
                 LogError "Transfer_Order() failed: ${response_json}"
@@ -924,6 +962,7 @@ Transfer_Order()
         request_body="${request_body}, \"workflowId\": { \"path\": \"${workflowPath}\", \"versionId\": \"${workflowVersionId}\" }"
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -941,7 +980,7 @@ Transfer_Order()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Transfer_Order() did not find objects: ${response_json}"
+                LogWarning "Transfer_Order() could not find objects: ${response_json}"
                 exit 3
             else
                 LogError "Transfer_Order() failed: ${response_json}"
@@ -985,6 +1024,7 @@ Suspend_Workflow()
         request_body="${request_body} ]"
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -1002,7 +1042,7 @@ Suspend_Workflow()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Suspend_Workflow() did not find object: ${response_json}"
+                LogWarning "Suspend_Workflow() could not find object: ${response_json}"
                 exit 3
             else
                 LogError "Suspend_Workflow() failed: ${response_json}"
@@ -1046,6 +1086,7 @@ Resume_Workflow()
         request_body="${request_body} ]"
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -1063,7 +1104,7 @@ Resume_Workflow()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Resume_Workflow() did not find object: ${response_json}"
+                LogWarning "Resume_Workflow() could not find object: ${response_json}"
                 exit 3
             else
                 LogError "Resume_Workflow() failed: ${response_json}"
@@ -1100,6 +1141,7 @@ Stop_Job()
         request_body="${request_body} ]"
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -1117,7 +1159,7 @@ Stop_Job()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Stop_Job() did not find object: ${response_json}"
+                LogWarning "Stop_Job() could not find object: ${response_json}"
                 exit 3
             else
                 LogError "Stop_Job() failed: ${response_json}"
@@ -1154,6 +1196,7 @@ Unstop_Job()
         request_body="${request_body} ]"
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -1171,7 +1214,7 @@ Unstop_Job()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Unstop_Job() did not find object: ${response_json}"
+                LogWarning "Unstop_Job() could not find object: ${response_json}"
                 exit 3
             else
                 LogError "Unstop_Job() failed: ${response_json}"
@@ -1208,6 +1251,7 @@ Skip_Job()
         request_body="${request_body} ]"
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -1225,7 +1269,7 @@ Skip_Job()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Skip_Job() did not find object: ${response_json}"
+                LogWarning "Skip_Job() could not find object: ${response_json}"
                 exit 3
             else
                 LogError "Skip_Job() failed: ${response_json}"
@@ -1262,6 +1306,7 @@ Unskip_Job()
         request_body="${request_body} ]"
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -1279,7 +1324,7 @@ Unskip_Job()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Unskip_Job() did not find object: ${response_json}"
+                LogWarning "Unskip_Job() could not find object: ${response_json}"
                 exit 3
             else
                 LogError "Unskip_Job() failed: ${response_json}"
@@ -1326,6 +1371,7 @@ Post_Notice()
         request_body="${request_body}, \"timeZone\": \"${time_zone}\""
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -1343,7 +1389,7 @@ Post_Notice()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Post_Notice() did not find objects: ${response_json}"
+                LogWarning "Post_Notice() could not find objects: ${response_json}"
                 exit 3
             else
                 LogError "Post_Notice() failed: ${response_json}"
@@ -1404,7 +1450,7 @@ Get_NoticeBoards()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogError "Get_NoticeBoards() did not find notice boards: ${response_json}"
+                LogError "Get_NoticeBoards() could not find notice boards: ${response_json}"
                 exit 2
             else
                 LogError "Get_NoticeBoards() failed: ${response_json}"
@@ -1511,7 +1557,9 @@ Delete_Notices()
             comma=,
         done
         
-        request_body="${request_body} ] }"
+        request_body="${request_body} ]"
+        Audit_Log_Request
+        request_body="${request_body} }"
 
         LogVerbose ".... request:"
         LogVerbose "curl ${curl_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/notices/delete"
@@ -1580,6 +1628,7 @@ Delete_Notice()
         request_body="${request_body} ]"
     fi
 
+    Audit_Log_Request
     request_body="${request_body} }"
 
     LogVerbose ".... request:"
@@ -1597,7 +1646,7 @@ Delete_Notice()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Delete_Notice() did not find objects: ${response_json}"
+                LogWarning "Delete_Notice() could not find objects: ${response_json}"
                 exit 3
             else
                 LogError "Delete_Notice() failed: ${response_json}"
@@ -1612,77 +1661,92 @@ Delete_Notice()
 
 Usage()
 {
-    >&2 echo ""
-    >&2 echo "Usage: $(basename "$0") [Command] [Options] [Switches]"
-    >&2 echo ""
-    >&2 echo "  Commands:"
-    >&2 echo "    add-order         --workflow  [--date-to] [--order-name] [--block-position] [--start-position] [--end-position] [--variable] [--force]"
-    >&2 echo "    cancel-order     [--workflow] [--folder] [--recursive] [--order-id] [--state] [--date-from] [--date-to] [--time-zone] [--force]"
-    >&2 echo "    suspend-order    [--workflow] [--folder] [--recursive] [--order-id] [--state] [--date-from] [--date-to] [--time-zone] [--force]"
-    >&2 echo "    resume-order     [--workflow] [--folder] [--recursive] [--order-id] [--state] [--label] [--variable]"
-    >&2 echo "    confirm-order    [--workflow] [--folder] [--recursive] [--order-id] [--state]"
-    >&2 echo "    letrun-order     [--workflow] [--folder] [--recursive] [--order-id] [--state]"
-    >&2 echo "    transfer-order    --workflow] [--folder] [--recursive]"
-    >&2 echo "    suspend-workflow  --workflow  [--folder] [--recursive]"
-    >&2 echo "    resume-workflow   --workflow  [--folder] [--recursive]"
-    >&2 echo "    stop-job          --workflow --label"
-    >&2 echo "    unstop-job        --workflow --label"
-    >&2 echo "    skip-job          --workflow --label"
-    >&2 echo "    unskip-job        --workflow --label"
-    >&2 echo "    post-notice       --notice-board  [--notice-id] [--notice-lifetime]"
-    >&2 echo "    get-notice       [--notice-board] [--notice-id] [--folder] [--recursive] [--date-to]"
-    >&2 echo "    delete-notice    [--notice-board] [--notice-id] [--folder] [--recursive] [--date-to]"
-    >&2 echo ""
-    >&2 echo "  Options:"
-    >&2 echo "    --url=<url>                        | required: JOC Cockpit URL"
-    >&2 echo "    --controller-id=<id>               | required: Controller ID"
-    >&2 echo "    --user=<account>                   | required: JOC Cockpit user account"
-    >&2 echo "    --password=<password>              | optional: JOC Cockpit password"
-    >&2 echo "    --ca-cert=<path>                   | optional: path to CA Certificate used for JOC Cockpit login"
-    >&2 echo "    --client-cert=<path>               | optional: path to Client Certificate used for login"
-    >&2 echo "    --client-key=<path>                | optional: path to Client Key used for login"
-    >&2 echo "    --timeout=<seconds>                | optional: timeout for request, default: ${timeout}"
-    >&2 echo "    --order-name=<string>              | optional: name for order, default: ${order_name}"
-    >&2 echo "    --block-position=<label>           | optional: label for block instruction that holds start position"
-    >&2 echo "    --start-position=<label>           | optional: label from which the order will be started"
-    >&2 echo "    --end-position=<label[,label]>     | optional: list of labels before which the order will terminate"
-    >&2 echo "    --variable=<key=value[,key=value]> | optional: list of variables holding key/value pairs"
-    >&2 echo "    --date-from=<date>                 | optional: order past scheduled date"
-    >&2 echo "    --date-to=<date>                   | optional: order scheduled date or notice date, default: now"
-    >&2 echo "    --time-zone=<tz>                   | optional: time zone for dates, default: ${time_zone}"
-    >&2 echo "                                                   see https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
-    >&2 echo "    --state=<state[,state]>            | optional: list of states limiting orders to be processed such as"
-    >&2 echo "                                                   SCHEDULED, INPROGRESS, RUNNING, SUSPENDED, WAITING, FAILED"
-    >&2 echo "    --folder=<path[,path]>             | optional: list of folders holding workflows, orders, notice boards"
-    >&2 echo "    --workflow=<name[,name]>           | optional: list of workflow names"
-    >&2 echo "    --order-id=<id[,id]>               | optional: list of order identifiers"
-    >&2 echo "    --label=<label[,label]>            | optional: list of labels for jobs"
-    >&2 echo "    --notice-board=<name[,name]>       | optional: list of notice boards"
-    >&2 echo "    --notice-id=<id>                   | optional: notice identifier, default: ${notice_id}"
-    >&2 echo "    --notice-lifetime=<period>         | optional: lifetime for notice"
-    >&2 echo "    --log-dir=<directory>              | optional: path to directory holding the script's log files"
-    >&2 echo ""
-    >&2 echo "  Switches:"
-    >&2 echo "    -h | --help                        | displays usage"
-    >&2 echo "    -v | --verbose                     | displays verbose output"
-    >&2 echo "    -p | --password                    | asks for password"
-    >&2 echo "    -r | --recursive                   | specifies folders to be looked up recursively"
-    >&2 echo "    -f | --force                       | specifies forced start or termination of jobs"
-    >&2 echo "    --show-logs                        | shows log output if --log-dir is used"
-    >&2 echo "    --make-dirs                        | creates directories if they do not exist"
-    >&2 echo ""
+    >&"$1" echo ""
+    >&"$1" echo "Usage: $(basename "$0") [Command] [Options] [Switches]"
+    >&"$1" echo ""
+    >&"$1" echo "  Commands:"
+    >&"$1" echo "    add-order         --workflow  [--date-to] [--order-name] [--block-position] [--start-position] [--end-position] [--variable] [--force]"
+    >&"$1" echo "    cancel-order     [--workflow] [--folder] [--recursive] [--order-id] [--state] [--date-from] [--date-to] [--time-zone] [--force]"
+    >&"$1" echo "    suspend-order    [--workflow] [--folder] [--recursive] [--order-id] [--state] [--date-from] [--date-to] [--time-zone] [--force]"
+    >&"$1" echo "    resume-order     [--workflow] [--folder] [--recursive] [--order-id] [--state] [--label] [--variable]"
+    >&"$1" echo "    confirm-order    [--workflow] [--folder] [--recursive] [--order-id] [--state]"
+    >&"$1" echo "    letrun-order     [--workflow] [--folder] [--recursive] [--order-id] [--state]"
+    >&"$1" echo "    transfer-order    --workflow] [--folder] [--recursive]"
+    >&"$1" echo "    suspend-workflow  --workflow  [--folder] [--recursive]"
+    >&"$1" echo "    resume-workflow   --workflow  [--folder] [--recursive]"
+    >&"$1" echo "    stop-job          --workflow --label"
+    >&"$1" echo "    unstop-job        --workflow --label"
+    >&"$1" echo "    skip-job          --workflow --label"
+    >&"$1" echo "    unskip-job        --workflow --label"
+    >&"$1" echo "    post-notice       --notice-board  [--notice-id] [--notice-lifetime]"
+    >&"$1" echo "    get-notice       [--notice-board] [--notice-id] [--folder] [--recursive] [--date-to]"
+    >&"$1" echo "    delete-notice    [--notice-board] [--notice-id] [--folder] [--recursive] [--date-to]"
+    >&"$1" echo ""
+    >&"$1" echo "  Options:"
+    >&"$1" echo "    --url=<url>                        | required: JOC Cockpit URL"
+    >&"$1" echo "    --controller-id=<id>               | required: Controller ID"
+    >&"$1" echo "    --user=<account>                   | required: JOC Cockpit user account"
+    >&"$1" echo "    --password=<password>              | optional: JOC Cockpit password"
+    >&"$1" echo "    --ca-cert=<path>                   | optional: path to CA Certificate used for JOC Cockpit login"
+    >&"$1" echo "    --client-cert=<path>               | optional: path to Client Certificate used for login"
+    >&"$1" echo "    --client-key=<path>                | optional: path to Client Key used for login"
+    >&"$1" echo "    --timeout=<seconds>                | optional: timeout for request, default: ${timeout}"
+    >&"$1" echo "    --order-name=<string>              | optional: name for order, default: ${order_name}"
+    >&"$1" echo "    --block-position=<label>           | optional: label for block instruction that holds start position"
+    >&"$1" echo "    --start-position=<label>           | optional: label from which the order will be started"
+    >&"$1" echo "    --end-position=<label[,label]>     | optional: list of labels before which the order will terminate"
+    >&"$1" echo "    --variable=<key=value[,key=value]> | optional: list of variables holding key/value pairs"
+    >&"$1" echo "    --date-from=<date>                 | optional: order past scheduled date"
+    >&"$1" echo "    --date-to=<date>                   | optional: order scheduled date or notice date, default: now"
+    >&"$1" echo "    --time-zone=<tz>                   | optional: time zone for dates, default: ${time_zone}"
+    >&"$1" echo "                                                   see https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+    >&"$1" echo "    --state=<state[,state]>            | optional: list of states limiting orders to be processed such as"
+    >&"$1" echo "                                                   SCHEDULED, INPROGRESS, RUNNING, SUSPENDED, WAITING, FAILED"
+    >&"$1" echo "    --folder=<path[,path]>             | optional: list of folders holding workflows, orders, notice boards"
+    >&"$1" echo "    --workflow=<name[,name]>           | optional: list of workflow names"
+    >&"$1" echo "    --order-id=<id[,id]>               | optional: list of order identifiers"
+    >&"$1" echo "    --label=<label[,label]>            | optional: list of labels for jobs"
+    >&"$1" echo "    --notice-board=<name[,name]>       | optional: list of notice boards"
+    >&"$1" echo "    --notice-id=<id>                   | optional: notice identifier, default: ${notice_id}"
+    >&"$1" echo "    --notice-lifetime=<period>         | optional: lifetime for notice"
+    >&"$1" echo "    --audit-message=<string>           | optional: audit log message"
+    >&"$1" echo "    --audit-time-spent=<number>        | optional: audit log time spent in minutes"
+    >&"$1" echo "    --audit-link=<url>                 | optional: audit log link"
+    >&"$1" echo "    --log-dir=<directory>              | optional: path to directory holding the script's log files"
+    >&"$1" echo ""
+    >&"$1" echo "  Switches:"
+    >&"$1" echo "    -h | --help                        | displays usage"
+    >&"$1" echo "    -v | --verbose                     | displays verbose output, repeat to increase verbosity"
+    >&"$1" echo "    -p | --password                    | asks for password"
+    >&"$1" echo "    -r | --recursive                   | specifies folders to be looked up recursively"
+    >&"$1" echo "    -f | --force                       | specifies forced start or termination of jobs"
+    >&"$1" echo "    --show-logs                        | shows log output if --log-dir is used"
+    >&"$1" echo "    --make-dirs                        | creates directories if they do not exist"
+    >&"$1" echo ""
+    >&"$1" echo "see https://kb.sos-berlin.com/x/DvZfCQ"
+    >&"$1" echo ""
 }
 
 Arguments()
 {
     args="$*"
+
+    if [ -z "$1" ]
+    then
+        Usage 1
+        exit
+    fi
+
     Get_Timezone
 
     case "$1" in
         add-order|cancel-order|suspend-order|resume-order|confirm-order|letrun-order|conf-order|transfer-order|stop-job|unstop-job|skip-job|unskip-job|suspend-workflow|resume-workflow|post-notice|get-notice|delete-notice) action=$1
                                     ;;
-        *)                          >&2 echo "unknown command: $1"
-                                    Usage
+        -h|--help)                  Usage 1
+                                    exit
+                                    ;;
+        *)                          Usage 2
+                                    >&2 echo "unknown command: $1"
                                     exit 1
                                     ;;
     esac
@@ -1738,13 +1802,19 @@ Arguments()
                                     ;;
             --notice-lifetime=*)    notice_lifetime=$(echo "${option}" | sed 's/--notice-lifetime=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
+            --audit-message=*)      audit_message=$(echo "${option}" | sed 's/--audit-message=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
+                                    ;;
+            --audit-time-spent=*)   audit_time_spent=$(echo "${option}" | sed 's/--audit-time-spent=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
+                                    ;;
+            --audit-link=*)         audit_link=$(echo "${option}" | sed 's/--audit-link=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
+                                    ;;
             --log-dir=*)            log_dir=$(echo "${option}" | sed 's/--log-dir=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
             # Switches
-            -h|--help)              Usage
+            -h|--help)              Usage 1
                                     exit
                                     ;;
-            -v|--verbose)           verbose=1
+            -v|--verbose)           verbose=$((verbose + 1))
                                     ;;
             -p|--password)          AskPassword
                                     ;;
@@ -1758,8 +1828,8 @@ Arguments()
                                     ;;
             add-order|cancel-order|suspend-order|resume-order|confirm-order|letrun-order|transfer-order|stop-job|unstop-job|skip-job|unskip-job|suspend-workflow|resume-workflow|post-notice|get-notice|delete-notice)
                                     ;;
-            *)                      >&2 echo "unknown option: ${option}"
-                                    Usage
+            *)                      Usage 2
+                                    >&2 echo "unknown option: ${option}"
                                     exit 1
                                     ;;
         esac
@@ -1780,103 +1850,103 @@ Arguments()
 
     if [ -z "${joc_url}" ]
     then
+        Usage 2
         LogError "JOC Cockpit URL not specified: --url=<url>"
-        Usage
-        exit 1
-    fi
-
-    if [ -z "${controller_id}" ]
-    then
-        LogError "Controller ID must be specified: --controller-id=<identifier>"
-        Usage
         exit 1
     fi
 
     if [ -z "${joc_user}" ]
     then
+        Usage 2
         LogError "JOC Cockpit user account not specified: --user=<account>"
-        Usage
         exit 1
     fi
 
     if [ -n "${joc_cacert}" ] && [ ! -f "${joc_cacert}" ]
     then
+        Usage 2
         LogError "Root CA Certificate file not found: --cacert=${joc_cacert}"
-        Usage
         exit 1
     fi
 
     if [ -n "${joc_client_cert}" ] && [ ! -f "${joc_client_cert}" ]
     then
+        Usage 2
         LogError "Client Certificate file not found: --client-cert=${joc_client_cert}"
-        Usage
         exit 1
     fi
 
     if [ -n "${joc_client_key}" ] && [ ! -f "${joc_client_key}" ]
     then
+        Usage 2
         LogError "Client Private Key file not found: --client-key=${joc_client_key}"
-        Usage
         exit 1
     fi
 
-    actions="add-order|transfer-order|stop-job|unstop-job|skip-job|unskip-job|suspend-workflow|resume-workflow"
-    if [ "${actions#*"$action"}" != "$actions" ] && [ -z "${workflow}" ]
+    if [ -z "${controller_id}" ]
     then
+        Usage 2
+        LogError "Controller ID must be specified: --controller-id=<identifier>"
+        exit 1
+    fi
+
+    actions="|add-order|transfer-order|stop-job|unstop-job|skip-job|unskip-job|suspend-workflow|resume-workflow|"
+    if [[ "${actions}" == *"|${action}|"* ]] && [ -z "${workflow}" ]
+    then
+        Usage 2
         LogError "Workflow not specified: --workflow="
-        Usage
         exit 1
     fi
 
-    actions="cancel-order|suspend-order|resume-order|letrun-order"
-    if [ "${actions#*"$action"}" != "$actions" ] && [ -z "${workflow}" ] && [ -z "${folder}" ]
+    actions="|cancel-order|suspend-order|resume-order|letrun-order|"
+    if [[ "${actions}" == *"|${action}|"* ]] && [ -z "${workflow}" ] && [ -z "${folder}" ] && [ -z "${order_id}" ]
     then
-        LogError "Command ${action} requires to specify the workflow or folder: --workflow= or --folder="
-        Usage
+        Usage 2
+        LogError "Command ${action} requires to specify the order ID, workflow or folder: --order-id, --workflow= or --folder="
         exit 1
     fi
 
     if [ "${action}" = "add-order" ] && [ -z "${order_name}" ]
     then
-        LogError "Command add-order requires to specify the order name: --order-name="
-        Usage
+        Usage 2
+        LogError "Command 'add-order' requires to specify the order name: --order-name="
         exit 1
     fi
 
-    actions="stop-job|unstop-job|skip-job|unskip-job"
-    if [ "${actions#*"$action"}" != "$actions" ] && [ -z "${label}" ]
+    actions="|stop-job|unstop-job|skip-job|unskip-job|"
+    if [[ "${actions}" == *"|${action}|"* ]] && [ -z "${label}" ]
     then
-        LogError "Command ${action} requires to specify the label: --label="
-        Usage
+        Usage 2
+        LogError "Command '${action}' requires to specify the label: --label="
         exit 1
     fi
 
     if [ "${action}" = "post-notice" ] && [ -z "${notice_board}" ]
     then
-        LogError "Command post-notice requires to specify the notice board: --notice-board="
-        Usage
+        Usage 2
+        LogError "Command 'post-notice' requires to specify the notice board: --notice-board="
         exit 1
     fi
 
-    actions="get-notice|delete-notice"
-    if [ "${actions#*"$action"}" != "$actions" ] && [ -z "${notice_board}" ] && [ -z "${folder}" ]
+    actions="|get-notice|delete-notice|"
+    if [[ "${actions}" == *"|${action}|"* ]] && [ -z "${notice_board}" ] && [ -z "${folder}" ]
     then
-        LogError "Command ${action} requires to specify the notice board or folder: --notice-board= or --folder="
-        Usage
+        Usage 2
+        LogError "Command '${action}' requires to specify the notice board or folder: --notice-board= or --folder="
         exit 1
     fi
 
     if [ -n "${show_logs}" ] && [ -z "${log_dir}" ]
     then
+        Usage 2
         LogError "Log directory not specified and --show-logs switch is present: --log-dir="
-        Usage
         exit 1
     fi
 
     if [ -z "${make_dirs}" ] && [ -n "${log_dir}" ] && [ ! -d "${log_dir}" ]
     then
+        Usage 2
         LogError "Log directory not found and --make-dirs switch not present: --log-dir=${log_dir}"
-        Usage
         exit 1
     fi
 
@@ -1910,9 +1980,9 @@ Arguments()
         touch "${log_file}"
     fi
 
-    Log "-- begin of log --------------"
-    Log "$0" "$(echo "${args}" | sed 's/--password=\([^--]*\)//')"
-    Log "-- begin of output -----------"
+    LogVerbose "-- begin of log --------------"
+    LogVerbose "$0" "$(echo "${args}" | sed 's/--password=\([^--]*\)//')"
+    LogVerbose "-- begin of output -----------"
 }
 
 # ------------------------------
@@ -1985,7 +2055,7 @@ End()
 
     if [ "$1" = "EXIT" ]
     then
-        Log "-- end of log ----------------"
+        LogVerbose "-- end of log ----------------"
 
         if [ -n "${show_logs}" ] && [ -f "${log_file}" ]
         then
@@ -2025,6 +2095,10 @@ End()
     unset notice_id
     unset notice_board
     unset notice_lifetime
+
+    unset audit_message
+    unset audit_time_spent
+    unset audit_link
 
     unset log_file
     unset start_time
