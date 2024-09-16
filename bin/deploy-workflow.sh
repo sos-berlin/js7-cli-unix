@@ -934,7 +934,7 @@ Recall()
         done
     fi
 
-    request_body="${request_body} ] }"
+    request_body="${request_body} ]"
     Audit_Log_Request
     request_body="${request_body} }"
 
@@ -1492,9 +1492,9 @@ Arguments()
                                     ;;
             --new-path=*)           new_object_path=$(echo "${option}" | sed 's/--new-path=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
-            --folder=*)             folder=$(echo "${option}" | sed 's/--folder=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
+            --folder=*)             folder=$(echo "${option}" | sed 's/--folder=//' | sed 's/^"//' | sed 's/"$//')
                                     ;;
-            --start-folder=*)       start_folder=$(echo "${option}" | sed 's/--start-folder=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
+            --start-folder=*)       start_folder=$(echo "${option}" | sed 's/--start-folder=//' | sed 's/^"//' | sed 's/"$//')
                                     ;;
             --type=*)               object_type=$(echo "${option}" | sed 's/--type=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
