@@ -17,6 +17,9 @@ request_options=(--url=https://centostest-primary.sos:6446 --user=root --passwor
 # cancel and restart Standalone Controller
 ./operate-controller.sh cancel-restart "${request_options[@]}" --controller-id=training
 
+# get status of Standalone Controller
+./operate-controller.sh status         "${request_options[@]}" --controller-id=training
+
 # check Standalone Controller Connection
 ./operate-controller.sh check          "${request_options[@]}" --controller-id=training --controller-url=http://localhost:9444
 
@@ -33,6 +36,14 @@ request_options=(--url=https://centostest-primary.sos:6446 --user=root --passwor
 # cancel and restart Controller Cluster instance
 ./operate-controller.sh cancel-restart "${request_options[@]}" --controller-id=training_cluster --controller-url=http://localhost:9544
 
+# get Controller Cluster status
+./operate-controller.sh status          "${request_options[@]}" --controller-id=training_cluster --controller-url=http://localhost:9544
+./operate-controller.sh status          "${request_options[@]}" --controller-id=training_cluster --controller-url=http://localhost:9644
+
+# check Controller Cluster Connection
+./operate-controller.sh check          "${request_options[@]}" --controller-id=training_cluster --controller-url=http://localhost:9544
+./operate-controller.sh check          "${request_options[@]}" --controller-id=training_cluster --controller-url=http://localhost:9644
+
 # switch-over Controller Cluster instance
 ./operate-controller.sh switch-over    "${request_options[@]}" --controller-id=training_cluster
 
@@ -41,10 +52,6 @@ request_options=(--url=https://centostest-primary.sos:6446 --user=root --passwor
 
 # confirm node loss Controller Cluster
 ./operate-controller.sh confirm-loss   "${request_options[@]}" --controller-id=training_cluster
-
-# check Controller Cluster Connection
-./operate-controller.sh check          "${request_options[@]}" --controller-id=training_cluster --controller-url=http://localhost:9544
-./operate-controller.sh check          "${request_options[@]}" --controller-id=training_cluster --controller-url=http://localhost:9644
 
 # ------------------------------ Agents ----------
 
@@ -60,12 +67,18 @@ request_options=(--url=https://centostest-primary.sos:6446 --user=root --passwor
 # reset/force Standalone Agent
 ./operate-controller.sh reset-agent    "${request_options[@]}" --controller-id=training --agent-id=StandaloneAgentHttpId --force
 
+# get status information for Standalone Agent
+./operate-controller.sh status-agent   "${request_options[@]}" --controller-id=training --agent-id=StandaloneAgentHttpId 
+
 
 # reset Agent Cluster
 ./operate-controller.sh reset-agent    "${request_options[@]}" --controller-id=training_cluster --agent-id=MyAgentClusterId_01
 
 # reset/force Agent Cluster
 ./operate-controller.sh reset-agent    "${request_options[@]}" --controller-id=training_cluster --agent-id=MyAgentClusterId_01 --force
+
+# get status for  Agent Cluster member
+./operate-controller.sh status-agent   "${request_options[@]}" --controller-id=training_cluster --agent-id=MyAgentClusterId_0
 
 # switch-over Agent Cluster
 ./operate-controller.sh switch-over-agent  "${request_options[@]}" --controller-id=training_cluster --agent-id=MyAgentClusterId_01

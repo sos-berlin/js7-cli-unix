@@ -60,9 +60,6 @@ request_options=(--url=https://centostest-primary.sos:6446 --user=ap-si-ecdsa --
 # release schedules
 ./deploy-workflow.sh release "${request_options[@]}" --path=/ap/Agent/apAgentSchedule01,/ap/Agent/apAgentSchedule02 --type=SCHEDULE --date-from=now
 
-# recall and remove schedule
-./deploy-workflow.sh release "${request_options[@]}" --path=/ap/Agent/apAgentSchedule03 --type=SCHEDULE --remove
-
 # recall objects from folder
 ./deploy-workflow.sh recall  "${request_options[@]}" --folder=/ap/Agent --recursive 
 

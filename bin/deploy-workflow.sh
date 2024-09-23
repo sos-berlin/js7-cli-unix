@@ -919,17 +919,7 @@ Recall()
         comma=
         set -- "$(echo "${object_path}" | sed -r 's/[,]+/ /g')"
         for i in $@; do
-            request_body="${request_body}${comma} { \"path\": \"${i}\", \"objectType\": \"${object_type}\", \"recursive\": ${recursive} }"
-            comma=,
-        done
-    fi
-
-    if [ -n "${folder}" ]
-    then
-        comma=
-        set -- "$(echo "${folder}" | sed -r 's/[,]+/ /g')"
-        for i in $@; do
-            request_body="${request_body}${comma} { \"path\": \"${i}\", \"objectType\": \"FOLDER\", \"recursive\": ${recursive} }"
+            request_body="${request_body}${comma} { \"path\": \"${i}\", \"objectType\": \"${object_type}\" }"
             comma=,
         done
     fi
@@ -961,6 +951,61 @@ Recall()
         fi
     else
         LogError "Recall() failed: ${response_json}"
+        exit 4
+    fi
+}
+
+Recall_Folder()
+{
+    LogVerbose ".. Recall_Folder()"
+    Curl_Options
+
+    request_body="{ "
+
+    if [ -n "${folder}" ]
+    then
+        request_body="${request_body} \"path\": \"${folder}\""
+    fi
+
+    if [ -n "${object_type}" ]
+    then
+        comma=
+        request_body="${request_body}, \"objectTypes\": ["
+        set -- "$(echo "${object_type}" | sed -r 's/[,]+/ /g')"
+        for i in $@; do
+            request_body="${request_body}${comma}\"$i\""
+            comma=,
+        done
+        request_body="${request_body}]"
+    fi
+
+    request_body="${request_body}, \"recursive\": ${recursive}"
+    Audit_Log_Request
+    request_body="${request_body} }"
+
+    LogVerbose ".... request:"
+    LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/inventory/releasables/recall/folder"
+    response_json=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/inventory/releasables/recall/folder)
+    LogVerbose ".... response:"
+    LogVerbose "${response_json}"
+
+    if echo "${response_json}" | jq -e . >/dev/null 2>&1
+    then
+        ok=$(echo "${response_json}" | jq -r '.ok // empty' | sed 's/^"//' | sed 's/"$//')
+        if [ -z "${ok}" ]
+        then
+            error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
+            if [ "${error_code}" = "JOC-400" ]
+            then
+                LogWarning "Recall_Folder() could not find objects: ${response_json}"
+                exit 3
+            else
+                LogError "Recall_Folder() failed: ${response_json}"
+                exit 4
+            fi
+        fi
+    else
+        LogError "Recall_Folder() failed: ${response_json}"
         exit 4
     fi
 }
@@ -1373,7 +1418,7 @@ Usage()
     >&"$1" echo "    release           --path --type [--date-from]"
     >&"$1" echo "    ..                --folder [--recursive] [--date-from]"
     >&"$1" echo "    recall            --path --type"
-    >&"$1" echo "    ..                --folder [--recursive]"
+    >&"$1" echo "    ..                --folder [--recursive] [--type]"
     >&"$1" echo "    store             --path --type --file"
     >&"$1" echo "    remove            --path --type [--date-from]"
     >&"$1" echo "    ..                --folder [--date-from]"
@@ -1947,7 +1992,12 @@ Process()
                             ;;
         release)            Release
                             ;;
-        recall)             Recall
+        recall)             if [ -z "${folder}" ]
+                            then
+                                Recall
+                            else
+                                Recall_Folder
+                            fi
                             ;;
         store)              Store
                             ;;

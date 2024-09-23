@@ -53,8 +53,11 @@ controller_id=
 controller_url=
 agent_id=
 subagent_id=
+state=
+agent_states=("COUPLED" "RESETTING" "INITIALISED" "COUPLINGFAILED" "SHUTDOWN")
 switch_over=false
 force=false
+no_hidden=false
 
 key_file=
 cert_file=
@@ -546,6 +549,48 @@ Confirm_Node_Loss_Controller()
     fi
 }
 
+Status_Controller()
+{
+    LogVerbose ".. Status_Controller()"
+    Curl_Options
+
+    request_body="{ \"controllerId\": \"${controller_id}\"" 
+    
+    if [ -n "${controller_url}" ]
+    then
+        request_body="${request_body}, \"url\": \"${controller_url}\""
+    fi
+
+    Audit_Log_Request
+    request_body="${request_body} }"
+
+    LogVerbose ".... request:"
+    LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/controller"
+    response_json=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/controller)    
+    LogVerbose ".... response:"
+    Log "${response_json}"
+
+    if echo "${response_json}" | jq -e . >/dev/null 2>&1
+    then
+        ok=$(echo "${response_json}" | jq -r '.controller // empty' | sed 's/^"//' | sed 's/"$//')
+        if [ -z "${ok}" ]
+        then
+            error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
+            if [ "${error_code}" = "JOC-400" ]
+            then
+                LogWarning "Status_Controller() could not perform operation: ${response_json}"
+                exit 3
+            else
+                LogError "Status_Controller() failed: ${response_json}"
+                exit 4
+            fi
+        fi
+    else
+        LogError "Status_Controller() failed: ${response_json}"
+        exit 4
+    fi
+}
+
 Check_Controller()
 {
     LogVerbose ".. Check_Controller()"
@@ -676,6 +721,69 @@ Disable_Standalone_Agent()
         fi
     else
         LogError "Disable_Standalone_Agent() failed: ${response_json}"
+        exit 4
+    fi
+}
+
+Status_Agent()
+{
+    LogVerbose ".. Status_Agent()"
+    Curl_Options
+
+    request_body="{ \"controllerId\": \"${controller_id}\""
+
+    if [ -n "${agent_id}" ]
+    then
+        request_body="${request_body}, \"agentIds\": ["
+        comma=
+        set -- "$(echo "${agent_id}" | sed -r 's/[,]+/ /g')"
+        for i in $@; do
+            request_body="${request_body}${comma} \"${i}\""
+            comma=,
+        done
+        request_body="${request_body} ]"
+    fi
+
+    if [ -n "${state}" ]
+    then
+        request_body="${request_body}, \"states\": ["
+        comma=
+        set -- "$(echo "${state}" | sed -r 's/[,]+/ /g')"
+        for i in $@; do
+            request_body="${request_body}${comma} \"${i}\""
+            comma=,
+        done
+        request_body="${request_body} ]"
+    fi
+
+    request_body="${request_body}, \"onlyVisibleAgents\": ${no_hidden}"
+
+    Audit_Log_Request
+    request_body="${request_body} }"
+
+    LogVerbose ".... request:"
+    LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/agents"
+    response_json=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/agents)    
+    LogVerbose ".... response:"
+    Log "${response_json}"
+
+    if echo "${response_json}" | jq -e . >/dev/null 2>&1
+    then
+        ok=$(echo "${response_json}" | jq -r '.agents // empty' | sed 's/^"//' | sed 's/"$//')
+        if [ -z "${ok}" ]
+        then
+            error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
+            if [ "${error_code}" = "JOC-400" ]
+            then
+                LogWarning "Status_Agent() could not perform operation: ${response_json}"
+                exit 3
+            else
+                LogError "Status_Agent() failed: ${response_json}"
+                exit 4
+            fi
+        fi
+    else
+        LogError "Status_Agent() failed: ${response_json}"
         exit 4
     fi
 }
@@ -997,12 +1105,14 @@ Usage()
     >&"$1" echo "    restart             --controller-id [--controller-url] [--switch-over]"
     >&"$1" echo "    cancel              --controller-id [--controller-url]"
     >&"$1" echo "    cancel-restart      --controller-id [--controller-url]"
+    >&"$1" echo "    status              --controller-id [--controller-url]"
+    >&"$1" echo "    check               --controller-id  --controller-url"
     >&"$1" echo "    switch-over         --controller-id"
     >&"$1" echo "    appoint-nodes       --controller-id"
     >&"$1" echo "    confirm-loss        --controller-id"
-    >&"$1" echo "    check               --controller-id --controller-url"
     >&"$1" echo "    enable-agent        --controller-id --agent-id"
     >&"$1" echo "    disable-agent       --controller-id --agent-id"
+    >&"$1" echo "    status-agent        --controller-id --agent-id [--state] [--no-hidden]"
     >&"$1" echo "    reset-agent         --controller-id --agent-id [--force]"
     >&"$1" echo "    switch-over-agent   --controller-id --agent-id"
     >&"$1" echo "    confirm-loss-agent  --controller-id --agent-id"
@@ -1024,6 +1134,8 @@ Usage()
     >&"$1" echo "    --controller-url=<url>             | optional: Controller URL for connection test"
     >&"$1" echo "    --agent-id=<id[,id]>               | optional: Agent IDs"
     >&"$1" echo "    --subagent-id=<id[,id]>            | optional: Subagent ID"
+    >&"$1" echo "    --state=<state[,state]>            | optional: list of states for filtering Agents such as"
+    >&"$1" echo "                                                   COUPLED, RESETTING, INITIALISED, COUPLINGFAILED, SHUTDOWN"
     >&"$1" echo "    --key=<path>                       | optional: path to private key file in PEM format"
     >&"$1" echo "    --key-password=<password>          | optional: password for private key file"
     >&"$1" echo "    --cert=<path>                      | optional: path to certificate file in PEM format"
@@ -1044,6 +1156,7 @@ Usage()
     >&"$1" echo "    -k | --key-password                | asks for key password"
     >&"$1" echo "    -o | --switch-over                 | switches over the active role to the standby instance"
     >&"$1" echo "    -f | --force                       | forces reset on Agent"
+    >&"$1" echo "    --no-hidden                        | suppresses hidden Agents"
     >&"$1" echo "    --show-logs                        | shows log output if --log-dir is used"
     >&"$1" echo "    --make-dirs                        | creates directories if they do not exist"
     >&"$1" echo ""
@@ -1062,7 +1175,7 @@ Arguments()
     fi
 
     case "$1" in
-        terminate|restart|cancel|cancel-restart|switch-over|appoint-nodes|confirm-loss|check|enable-agent|disable-agent|reset-agent|confirm-loss-agent|switch-over-agent|enable-subagent|disable-subagent|reset-subagent|encrypt|decrypt) action=$1
+        terminate|restart|cancel|cancel-restart|status|check|switch-over|appoint-nodes|confirm-loss|enable-agent|disable-agent|status-agent|reset-agent|confirm-loss-agent|switch-over-agent|enable-subagent|disable-subagent|reset-subagent|encrypt|decrypt) action=$1
                                     ;;
         -h|--help)                  Usage 1
                                     exit
@@ -1097,6 +1210,8 @@ Arguments()
             --agent-id=*)           agent_id=$(echo "${option}" | sed 's/--agent-id=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
             --subagent-id=*)        subagent_id=$(echo "${option}" | sed 's/--subagent-id=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
+                                    ;;
+            --state=*)              state=$(echo "${option}" | sed 's/--state=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
             --key=*)                key_file=$(echo "${option}" | sed 's/--key=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
@@ -1136,11 +1251,13 @@ Arguments()
                                     ;;
             -f|--force)             force=true
                                     ;;
+            --no-hidden)            no_hidden=true
+                                    ;;
             --make-dirs)            make_dirs=1
                                     ;;
             --show-logs)            show_logs=1
                                     ;;
-            terminate|restart|cancel|cancel-restart|switch-over|appoint-nodes|confirm-loss|check|enable-agent|disable-agent|reset-agent|confirm-loss-agent|switch-over-agent|enable-subagent|disable-subagent|reset-subagent|encrypt|decrypt) action=$1
+            terminate|restart|cancel|cancel-restart|status|check|switch-over|appoint-nodes|confirm-loss|enable-agent|disable-agent|status-agent|reset-agent|confirm-loss-agent|switch-over-agent|enable-subagent|disable-subagent|reset-subagent|encrypt|decrypt) action=$1
                                     ;;
             *)                      Usage 2
                                     >&2 echo "unknown option: ${option}"
@@ -1201,21 +1318,25 @@ Arguments()
         fi
     fi
 
-    if [ ! "${action}" = "check" ] && [ -z "${controller_id}" ]
+    actions="|status|status-agent|check|"
+    if [[ "${actions}" == *"|${action}|"* ]]
     then
-        Usage 2
-        LogError "Controller ID must be specified: --controller-id="
-        exit 1
+        if [ -z "${controller_id}" ]
+        then
+            Usage 2
+            LogError "Controller ID must be specified: --controller-id="
+            exit 1
+        fi
+
+        if [ "${action}" = "check" ] && [ -z "${controller_url}" ]
+        then
+            Usage 2
+            LogError "Command '${action}' requires to specify the Controller instance URL: --controller-url="
+            exit 1
+        fi
     fi
 
-    if [ "${action}" = "check" ] && [ -z "${controller_url}" ]
-    then
-        Usage 2
-        LogError "Command 'check' requires to specify the Controller instance URL: --controller-url="
-        exit 1
-    fi
-
-    actions="|enable-agent|disable-agent|reset-agent|confirm-loss-agent|switch-over-agent|"
+    actions="|enable-agent|disable-agent|status-agent|reset-agent|confirm-loss-agent|switch-over-agent|"
     if [[ "${actions}" == *"|${action}|"* ]] && [ -z "${agent_id}" ]
     then
         Usage 2
@@ -1404,23 +1525,27 @@ Process()
                             ;;
         cancel-restart)     Cancel_Restart_Controller
                             ;;
+        status)             Status_Controller
+                            ;;
+        check)              Check_Controller
+                            ;;
         switch-over)        Switchover_Controller
                             ;;
         appoint-nodes)      Appoint_Nodes_Controller
                             ;;
         confirm-loss)       Confirm_Node_Loss_Controller
                             ;;
-        check)              Check_Controller
-                            ;;
         enable-agent)       Enable_Standalone_Agent
                             ;;
         disable-agent)      Disable_Standalone_Agent
                             ;;
+        status-agent)       Status_Agent
+                            ;;
         reset-agent)        Reset_Agent
                             ;;
-        agent-confirm-loss) Confirm_Node_Loss_Agent
+        confirm-loss-agent) Confirm_Node_Loss_Agent
                             ;;
-        agent-switch-over)  Agent_Switchover
+        switch-over-agent)  Agent_Switchover
                             ;;
         enable-subagent)    Enable_Subagent
                             ;;
@@ -1484,8 +1609,11 @@ End()
     unset controller_url
     unset agent_id
     unset subagent_id
+    unset state
+    unset agent_states
     unset switch_over
     unset force
+    unset no_hidden
 
     unset cert_file
     unset key_file
