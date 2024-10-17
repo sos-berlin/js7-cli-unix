@@ -29,12 +29,18 @@ request_options=(--url=http://joc-2-0-primary.sos:7446 --user=root --password=ro
 # cancel order by state, folder recursively
 ./operate-workflow.sh cancel-order     "${request_options[@]}" --date-to=-2h --folder=/ap --recursive --state=SCHEDULED,PROMPTING,SUSPENDED,INPROGRESS,RUNNING
 
+# cancel order by order id
+./operate-workflow.sh cancel-order     "${request_options[@]}" --order-id="#2024-10-17#T15818656402-root" --force --deep
+
 
 # suspend order
 ./operate-workflow.sh suspend-order    "${request_options[@]}" --workflow=ap3jobs
 
 # suspend order and terminate running job
 ./operate-workflow.sh suspend-order    "${request_options[@]}" --workflow=ap3jobs -force
+
+# suspend order by order id
+./operate-workflow.sh suspend-order    "${request_options[@]}" --order-id="#2024-10-17#T15818656402-root" --force --deep
 
 
 # resume suspended orders

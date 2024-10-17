@@ -1321,7 +1321,7 @@ Usage()
     >&"$1" echo "    -k | --key-password                | asks for key password"
     >&"$1" echo "    -o | --overwrite                   | overwrites objects on import"
     >&"$1" echo "    -i | --hide                        | hides Agent"
-    >&"$1" echo "    -c | --cluster                     | signals a Cluster Agent"
+    >&"$1" echo "    -c | --cluster                     | specifies a Cluster Agent"
     >&"$1" echo "    --show-logs                        | shows log output if --log-dir is used"
     >&"$1" echo "    --make-dirs                        | creates directories if they do not exist"
     >&"$1" echo ""

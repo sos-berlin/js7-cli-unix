@@ -5,7 +5,7 @@ set -e
 # ------------------------------------------------------------
 # Company:  Software- und Organisations-Service GmbH
 # Date:     2024-08-24
-# Purpose:  Deployment Operations on Workflows
+# Purpose:  Status Operations on JOC Cockpit
 # ------------------------------------------------------------
 #
 # Examples, see https://kb.sos-berlin.com/x/-YZvCQ
@@ -43,6 +43,12 @@ access_token=
 
 controller_id=
 validity_days=60
+service_type=
+member_id=
+version=
+agent_id=
+settings=
+list=0
 
 key_file=
 cert_file=
@@ -245,6 +251,239 @@ Logout()
     fi
 }
 
+Get_Settings()
+{
+    LogVerbose ".. Get_Settings()"
+    Curl_Options
+
+    request_body="{}"
+
+    LogVerbose ".... request:"
+    LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/settings"
+    response_json=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/settings)
+    LogVerbose ".... response:"
+    LogVerbose "${response_json}"
+
+    if echo "${response_json}" | jq -e . >/dev/null 2>&1
+    then
+        ok=$(echo "${response_json}" | jq -r '.configuration // empty' | sed 's/^"//' | sed 's/"$//')
+        if [ -z "${ok}" ]
+        then
+            error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
+            if [ "${error_code}" = "JOC-400" ]
+            then
+                LogWarning "Get_Settings() could not perform operation: ${response_json}"
+                exit 3
+            else
+                LogError "Get_Settings() failed: ${response_json}"
+                exit 4
+            fi
+        fi
+    else
+        LogError "Get_Settings() failed: ${response_json}"
+        exit 4
+    fi
+    
+    echo "${response_json}" | jq -r '.configuration.configurationItem // empty'
+}
+
+Store_Settings()
+{
+    LogVerbose ".. Store_Settings()"
+    Curl_Options
+
+    request_body="{ \"configurationItem\": $(echo "${settings}" | jq -c | jq -RM)"
+
+    Audit_Log_Request
+    request_body="${request_body} }"
+
+    LogVerbose ".... request:"
+    LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/settings/store"
+    response_json=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/settings/store)
+    LogVerbose ".... response:"
+    LogVerbose "${response_json}"
+
+    if echo "${response_json}" | jq -e . >/dev/null 2>&1
+    then
+        ok=$(echo "${response_json}" | jq -r '.ok // empty' | sed 's/^"//' | sed 's/"$//')
+        if [ -z "${ok}" ]
+        then
+            error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
+            if [ "${error_code}" = "JOC-400" ]
+            then
+                LogWarning "Store_Settings() could not perform operation: ${response_json}"
+                exit 3
+            else
+                LogError "Store_Settings() failed: ${response_json}"
+                exit 4
+            fi
+        fi
+    else
+        LogError "Store_Settings() failed: ${response_json}"
+        exit 4
+    fi
+}
+
+Switch_Over()
+{
+    LogVerbose ".. Switch_Over()"
+    Curl_Options
+
+    request_body="{ \"controllerId\": \"${controller_id}\"" 
+    
+    Audit_Log_Request
+    request_body="${request_body} }"
+
+    LogVerbose ".... request:"
+    LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/controller/components"
+    response_json=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/controller/components)    
+    LogVerbose ".... response:"
+    LogVerbose "${response_json}"
+
+    if echo "${response_json}" | jq -e . >/dev/null 2>&1
+    then
+        ok=$(echo "${response_json}" | jq -r '.jocs // empty' | sed 's/^"//' | sed 's/"$//')
+        if [ -z "${ok}" ]
+        then
+            error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
+            if [ "${error_code}" = "JOC-400" ]
+            then
+                LogWarning "Switch_Over() could not perform operation: ${response_json}"
+                exit 3
+            else
+                LogError "Switch_Over() failed: ${response_json}"
+                exit 4
+            fi
+        fi
+    else
+        LogError "Switch_Over() failed: ${response_json}"
+        exit 4
+    fi
+
+    member_id=$(echo "$response_json" | jq -r '.jocs[] | select(.clusterNodeState.severity == 1) | .memberId // empty')
+    
+    if [ -z "${member_id}" ]
+    then
+        LogError "Switch_Over() failed, no standby JOC Cockpit instance found: ${response_json}"
+        exit 4
+    fi
+    
+    request_body="{ \"memberId\": \"${member_id}\""
+
+    Audit_Log_Request
+    request_body="${request_body} }"
+
+    LogVerbose ".... request:"
+    LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/joc/cluster/switch_member"
+    response_json=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/joc/cluster/switch_member)    
+    LogVerbose ".... response:"
+    LogVerbose "${response_json}"
+
+    if echo "${response_json}" | jq -e . >/dev/null 2>&1
+    then
+        ok=$(echo "${response_json}" | jq -r '.state // empty' | sed 's/^"//' | sed 's/"$//')
+        if [ -z "${ok}" ]
+        then
+            error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
+            if [ "${error_code}" = "JOC-400" ]
+            then
+                LogWarning "Switch_Over() could not perform operation: ${response_json}"
+                exit 3
+            else
+                LogError "Switch_Over() failed: ${response_json}"
+                exit 4
+            fi
+        fi
+    else
+        LogError "Switch_Over() failed: ${response_json}"
+        exit 4
+    fi
+}
+
+Restart_Service()
+{
+    LogVerbose ".. Restart_Service()"
+    Curl_Options
+
+    request_body="{"
+
+    if [ -n "${service_type}" ]
+    then
+        request_body="${request_body} \"type\": \"${service_type}\""
+    fi
+
+    Audit_Log_Request
+    request_body="${request_body} }"
+
+    LogVerbose ".... request:"
+    LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/joc/cluster/restart"
+    response_json=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/joc/cluster/restart)
+    LogVerbose ".... response:"
+    LogVerbose "${response_json}"
+
+    if echo "${response_json}" | jq -e . >/dev/null 2>&1
+    then
+        ok=$(echo "${response_json}" | jq -r '.state // empty' | sed 's/^"//' | sed 's/"$//')
+        if [ -z "${ok}" ]
+        then
+            error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
+            if [ "${error_code}" = "JOC-400" ]
+            then
+                LogWarning "Restart_Service() could not perform operation: ${response_json}"
+                exit 3
+            else
+                LogError "Restart_Service() failed: ${response_json}"
+                exit 4
+            fi
+        fi
+    else
+        LogError "Restart_Service() failed: ${response_json}"
+        exit 4
+    fi
+}
+
+Run_Service()
+{
+    LogVerbose ".. Run_Service()"
+    Curl_Options
+
+    request_body="{"
+
+    if [ -n "${service_type}" ]
+    then
+        request_body="${request_body} \"type\": \"${service_type}\""
+    fi
+
+    Audit_Log_Request
+    request_body="${request_body} }"
+
+    LogVerbose ".... request:"
+    LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/joc/cluster/run"
+    response_json=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/joc/cluster/run)
+    LogVerbose ".... response:"
+    LogVerbose "${response_json}"
+
+    if echo "${response_json}" | jq -e . >/dev/null 2>&1
+    then
+        ok=$(echo "${response_json}" | jq -r '.state // empty' | sed 's/^"//' | sed 's/"$//')
+        if [ -z "${ok}" ]
+        then
+            error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
+            if [ "${error_code}" = "JOC-400" ]
+            then
+                LogWarning "Run_Service() could not perform operation: ${response_json}"
+                exit 3
+            else
+                LogError "Run_Service() failed: ${response_json}"
+                exit 4
+            fi
+        fi
+    else
+        LogError "Run_Service() failed: ${response_json}"
+        exit 4
+    fi
+}
+
 Check_License()
 {
     LogVerbose ".. Check_License()"
@@ -348,6 +587,89 @@ Status_JOC()
     fi
 }
 
+Version()
+{
+    LogVerbose ".. Version()"
+    Curl_Options
+
+    request_body="{"
+    request_comma=
+
+    if [ -n "${controller_id}" ]
+    then
+        request_body="${request_body}${request_comma} \"controllerIds\": ["
+        request_comma=,
+        comma=
+        set -- "$(echo "${controller_id}" | sed -r 's/[,]+/ /g')"
+        for i in $@; do
+            request_body="${request_body}${comma} \"${i}\""
+            comma=,
+        done
+        request_body="${request_body} ]"
+    fi
+
+    if [ -n "${agent_id}" ]
+    then
+        request_body="${request_body}${request_comma} \"agentIds\": ["
+        request_comma=,
+        comma=
+        set -- "$(echo "${agent_id}" | sed -r 's/[,]+/ /g')"
+        for i in $@; do
+            request_body="${request_body}${comma} \"${i}\""
+            comma=,
+        done
+        request_body="${request_body} ]"
+    fi
+
+    Audit_Log_Request
+    request_body="${request_body} }"
+
+    LogVerbose ".... request:"
+    LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/joc/versions"
+    response_json=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/joc/versions)    
+    LogVerbose ".... response:"
+    LogVerbose "${response_json}"
+
+    if echo "${response_json}" | jq -e . >/dev/null 2>&1
+    then
+        ok=$(echo "${response_json}" | jq -r '.jocVersion // empty' | sed 's/^"//' | sed 's/"$//')
+        if [ -z "${ok}" ]
+        then
+            error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
+            if [ "${error_code}" = "JOC-400" ]
+            then
+                LogWarning "Version() could not perform operation: ${response_json}"
+                exit 3
+            else
+                LogError "Version() failed: ${response_json}"
+                exit 4
+            fi
+        fi
+    else
+        LogError "Version() failed: ${response_json}"
+        exit 4
+    fi
+
+    if [ "${list}" -eq 0 ]
+    then
+        if [ -n "${agent_id}" ]
+        then
+            version=$(echo "${response_json}" | jq -r '.agentVersions[0].version // empty')
+        else
+            if [ -n "${controller_id}" ]
+            then
+                version=$(echo "${response_json}" | jq -r '.controllerVersions[0].version // empty')
+            else
+                version=$(echo "${response_json}" | jq -r '.jocVersion // empty')
+            fi
+         fi
+         
+         Log "${version}"
+    else
+        Log "${response_json}"
+    fi
+}
+
 Encrypt()
 {
     in_string="$1"
@@ -410,10 +732,16 @@ Usage()
     >&"$1" echo "Usage: $(basename "$0") [Command] [Options] [Switches]"
     >&"$1" echo ""
     >&"$1" echo "  Commands:"
-    >&"$1" echo "    status            --controller-id"
-    >&"$1" echo "    check-license    [--validity-days]"
-    >&"$1" echo "    encrypt           --in [--infile --outfile] --cert [--java-home] [--java-lib]"
-    >&"$1" echo "    decrypt           --in [--infile --outfile] --key [--key-password] [--java-home] [--java-lib]"
+    >&"$1" echo "    status              --controller-id"
+    >&"$1" echo "    version            [--controller-id] [--agent-id] [--list]"
+    >&"$1" echo "    switch-over         --controller-id"
+    >&"$1" echo "    restart-service     --service-type"
+    >&"$1" echo "    run-service         --service-type"
+    >&"$1" echo "    check-license      [--validity-days]"
+    >&"$1" echo "    get-settings"
+    >&"$1" echo "    store-settings      --settings"
+    >&"$1" echo "    encrypt             --in [--infile --outfile] --cert [--java-home] [--java-lib]"
+    >&"$1" echo "    decrypt             --in [--infile --outfile] --key [--key-password] [--java-home] [--java-lib]"
     >&"$1" echo ""
     >&"$1" echo "  Options:"
     >&"$1" echo "    --url=<url>                        | required: JOC Cockpit URL"
@@ -423,8 +751,11 @@ Usage()
     >&"$1" echo "    --client-cert=<path>               | optional: path to Client Certificate used for login"
     >&"$1" echo "    --client-key=<path>                | optional: path to Client Key used for login"
     >&"$1" echo "    --timeout=<seconds>                | optional: timeout for request, default: ${timeout}"
-    >&"$1" echo "    --controller-id=<id>               | required: Controller ID"
+    >&"$1" echo "    --controller-id=<id>               | optional: Controller ID"
+    >&"$1" echo "    --agent-id=<id[,id]>               | optional: Agent IDs"
+    >&"$1" echo "    --service-type=<identifier>        | optional: service for restart such as cluster, history, dailyplan, cleanup, monitor"
     >&"$1" echo "    --validity-days=<number>           | optional: number of days for validity of license, default: ${validity_days}"
+    >&"$1" echo "    --settings=<json>                  | optional: settings to be stored from JSON"
     >&"$1" echo "    --key=<path>                       | optional: path to private key file in PEM format"
     >&"$1" echo "    --key-password=<password>          | optional: password for private key file"
     >&"$1" echo "    --cert=<path>                      | optional: path to certificate file in PEM format"
@@ -443,10 +774,11 @@ Usage()
     >&"$1" echo "    -v | --verbose                     | displays verbose output, repeat to increase verbosity"
     >&"$1" echo "    -p | --password                    | asks for password"
     >&"$1" echo "    -k | --key-password                | asks for key password"
+    >&"$1" echo "    -l | --list                        | lists version information in JSON format"
     >&"$1" echo "    --show-logs                        | shows log output if --log-dir is used"
     >&"$1" echo "    --make-dirs                        | creates directories if they do not exist"
     >&"$1" echo ""
-    >&"$1" echo "see https://kb.sos-berlin.com/x/9YZvCQ"
+    >&"$1" echo "see https://kb.sos-berlin.com/x/QoiOCQ"
     >&"$1" echo ""
 }
 
@@ -461,7 +793,7 @@ Arguments()
     fi
 
     case "$1" in
-        status|check-license|encrypt|decrypt) action=$1
+        status|switch-over|restart-service|run-service|get-settings|store-settings|check-license|version|encrypt|decrypt) action=$1
                                     ;;
         -h|--help)                  Usage 1
                                     exit
@@ -490,6 +822,12 @@ Arguments()
             --timeout=*)            timeout=$(echo "${option}" | sed 's/--timeout=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
             --controller-id=*)      controller_id=$(echo "${option}" | sed 's/--controller-id=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
+                                    ;;
+            --agent-id=*)           agent_id=$(echo "${option}" | sed 's/--agent-id=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
+                                    ;;
+            --settings=*)           settings=$(echo "${option}" | sed 's/--settings=//')
+                                    ;;
+            --service-type=*)       service_type=$(echo "${option}" | sed 's/--service-type=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
             --validity-days=*)      validity_days=$(echo "${option}" | sed 's/--validity-days=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
@@ -527,11 +865,13 @@ Arguments()
                                     ;;
             -k|--key-password)      AskKeyPassword
                                     ;;
+            -l|--list)              list=1
+                                    ;;
             --make-dirs)            make_dirs=1
                                     ;;
             --show-logs)            show_logs=1
                                     ;;
-            status|check-license|encrypt|decrypt) action=$1
+            status|switch-over|restart-service|run-service|get-settings|store-settings|check-license|version|encrypt|decrypt) action=$1
                                     ;;
             *)                      Usage 2
                                     >&2 echo "unknown option: ${option}"
@@ -592,10 +932,33 @@ Arguments()
         fi
     fi
 
+    actions="|status|switch-over|"
+    if [[ "${actions}" == *"|${action}|"* ]] && [ -z "${controller_id}" ]
+    then
+        Usage 2
+        LogError "Controller ID must be specified: --controller-id="
+        exit 1
+    fi
+
+    actions="|restart-service|run-service|"
+    if [[ "${actions}" == *"|${action}|"* ]] && [ -z "${service_type}" ]
+    then
+        Usage 2
+        LogError "Action '${action}' requires to specify the service type: --service-type=cluster|history|dailyplan|cleanup|monitor"
+        exit 1
+    fi
+
     if [ "${action}" = "check-license" ] && [ -z "${validity_days}" ]
     then
         Usage 2
         LogError "Action 'check-license' requires to specify the number of days required for license validity: --validity-days="
+        exit 1
+    fi
+
+    if [ "${action}" = "store-settings" ] && [ -z "${settings}" ]
+    then
+        Usage 2
+        LogError "Action 'store-settings' requires to specify settings: --settings="
         exit 1
     fi
 
@@ -733,12 +1096,12 @@ Arguments()
             mkdir -p "${log_dir}"
         fi
     
-        log_file="${log_dir}"/operate-controller."${start_time}".log
+        log_file="${log_dir}"/operate-joc."${start_time}".log
         while [ -f "${log_file}" ]
         do
             sleep 1
             start_time=$(date +"%Y-%m-%dT%H-%M-%S")
-            log_file="${log_dir}"/operate-controller."${start_time}".log
+            log_file="${log_dir}"/operate-joc."${start_time}".log
         done
         
         touch "${log_file}"
@@ -766,7 +1129,19 @@ Process()
     case "${action}" in
         status)             Status_JOC
                             ;;
+        switch-over)        Switch_Over
+                            ;;
+        restart-service)    Restart_Service
+                            ;;
+        run-service)        Run_Service
+                            ;;
         check-license)      Check_License
+                            ;;
+        get-settings)       Get_Settings
+                            ;;
+        store-settings)     Store_Settings
+                            ;;
+        version)            Version
                             ;;
         encrypt)            LogVerbose ".. Encrypt()"
                             LogVerbose ".... running: ${JAVA} -classpath ${java_lib}/patches/*:${java_lib}/sos/*:${java_lib}/3rd-party/*:${java_lib}/stdout com.sos.commons.encryption.executable.Encrypt"
@@ -830,6 +1205,12 @@ End()
     unset license_period
     unset current_date
     unset ms_period
+    unset service_type
+    unset member_id
+    unset version
+    unset agent_id
+    unset settings
+    unset list
 
     unset cert_file
     unset key_file

@@ -65,6 +65,8 @@ folder=
 recursive=false
 label=
 force=false
+reset=false
+deep=false
 notice_board=
 notice_id=
 notice_lifetime=
@@ -478,7 +480,7 @@ Cancel_Order()
     fi
 
     request_body="${request_body}, \"kill\": ${force}"
-    request_body="${request_body}, \"deep\": ${recursive}"
+    request_body="${request_body}, \"deep\": ${deep}"
     Audit_Log_Request
     request_body="${request_body} }"
 
@@ -579,8 +581,9 @@ Suspend_Order()
         request_body="${request_body}, \"timeZone\": \"${time_zone}\""
     fi
 
+    request_body="${request_body}, \"reset\": ${reset}"
     request_body="${request_body}, \"kill\": ${force}"
-    request_body="${request_body}, \"deep\": ${recursive}"
+    request_body="${request_body}, \"deep\": ${deep}"
     Audit_Log_Request
     request_body="${request_body} }"
 
@@ -1731,8 +1734,8 @@ Usage()
     >&"$1" echo ""
     >&"$1" echo "  Commands:"
     >&"$1" echo "    add-order         --workflow  [--date-to] [--order-name] [--block-position] [--start-position] [--end-position] [--variable] [--force]"
-    >&"$1" echo "    cancel-order     [--workflow] [--folder] [--recursive] [--order-id] [--state] [--date-from] [--date-to] [--time-zone] [--force]"
-    >&"$1" echo "    suspend-order    [--workflow] [--folder] [--recursive] [--order-id] [--state] [--date-from] [--date-to] [--time-zone] [--force]"
+    >&"$1" echo "    cancel-order     [--workflow] [--folder] [--recursive] [--order-id] [--state] [--date-from] [--date-to] [--time-zone] [--force] [--deep]"
+    >&"$1" echo "    suspend-order    [--workflow] [--folder] [--recursive] [--order-id] [--state] [--date-from] [--date-to] [--time-zone] [--force] [--deep] [--reset]"
     >&"$1" echo "    resume-order     [--workflow] [--folder] [--recursive] [--order-id] [--state] [--label] [--variable]"
     >&"$1" echo "    confirm-order    [--workflow] [--folder] [--recursive] [--order-id] [--state]"
     >&"$1" echo "    letrun-order     [--workflow] [--folder] [--recursive] [--order-id] [--state]"
@@ -1795,6 +1798,8 @@ Usage()
     >&"$1" echo "    -p | --password                    | asks for password"
     >&"$1" echo "    -k | --key-password                | asks for key password"
     >&"$1" echo "    -r | --recursive                   | specifies folders to be looked up recursively"
+    >&"$1" echo "    -d | --deep                        | specifies child orders to be subject to cancel/suspend operation"
+    >&"$1" echo "    -s | --reset                       | resets instruction for suspend operation"
     >&"$1" echo "    -f | --force                       | specifies forced start or termination of jobs"
     >&"$1" echo "    --show-logs                        | shows log output if --log-dir is used"
     >&"$1" echo "    --make-dirs                        | creates directories if they do not exist"
@@ -1914,7 +1919,11 @@ Arguments()
                                     ;;
             -r|--recursive)         recursive=true
                                     ;;
+            -s|--reset)             reset=true
+                                    ;;
             -f|--force)             force=true
+                                    ;;
+            -d|--deep)              deep=true
                                     ;;
             --make-dirs)            make_dirs=1
                                     ;;
@@ -2322,6 +2331,9 @@ End()
     unset notice_id
     unset notice_board
     unset notice_lifetime
+    unset force
+    unset reset
+    unset deep
 
     unset cert_file
     unset key_file

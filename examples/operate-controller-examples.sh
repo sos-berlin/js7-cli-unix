@@ -96,6 +96,15 @@ request_options=(--url=https://centostest-primary.sos:6446 --user=root --passwor
 # reset Subagent in Agent Cluster
 ./operate-controller.sh reset-subagent     "${request_options[@]}" --controller-id=training_cluster --subagent-id=MySubagent_01
 
+# ------------------------------ Version ----------
+
+# get version
+./operate-controller.sh version "${request_options[@]}"
+./operate-controller.sh version "${request_options[@]}" --controller-id=testsuite
+./operate-controller.sh version "${request_options[@]}" --agent-id=StandaloneAgentHttpId
+./operate-controller.sh version "${request_options[@]}" --agent-id=MyAgentClusterId_01
+./operate-controller.sh version "${request_options[@]}" --controller-id=standalone --agent-id=agent_003
+
 # ------------------------------ Encrypted Passwords ----------
 
 # create Private Key

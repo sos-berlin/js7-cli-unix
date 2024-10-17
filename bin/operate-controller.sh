@@ -54,10 +54,11 @@ controller_url=
 agent_id=
 subagent_id=
 state=
-agent_states=("COUPLED" "RESETTING" "INITIALISED" "COUPLINGFAILED" "SHUTDOWN")
 switch_over=false
 force=false
 no_hidden=false
+version=
+list=0
 
 key_file=
 cert_file=
@@ -1039,6 +1040,89 @@ Reset_Subagent()
     fi
 }
 
+Version()
+{
+    LogVerbose ".. Version()"
+    Curl_Options
+
+    request_body="{"
+    request_comma=
+
+    if [ -n "${controller_id}" ]
+    then
+        request_body="${request_body}${request_comma} \"controllerIds\": ["
+        request_comma=,
+        comma=
+        set -- "$(echo "${controller_id}" | sed -r 's/[,]+/ /g')"
+        for i in $@; do
+            request_body="${request_body}${comma} \"${i}\""
+            comma=,
+        done
+        request_body="${request_body} ]"
+    fi
+
+    if [ -n "${agent_id}" ]
+    then
+        request_body="${request_body}${request_comma} \"agentIds\": ["
+        request_comma=,
+        comma=
+        set -- "$(echo "${agent_id}" | sed -r 's/[,]+/ /g')"
+        for i in $@; do
+            request_body="${request_body}${comma} \"${i}\""
+            comma=,
+        done
+        request_body="${request_body} ]"
+    fi
+
+    Audit_Log_Request
+    request_body="${request_body} }"
+
+    LogVerbose ".... request:"
+    LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/joc/versions"
+    response_json=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/joc/versions)    
+    LogVerbose ".... response:"
+    LogVerbose "${response_json}"
+
+    if echo "${response_json}" | jq -e . >/dev/null 2>&1
+    then
+        ok=$(echo "${response_json}" | jq -r '.jocVersion // empty' | sed 's/^"//' | sed 's/"$//')
+        if [ -z "${ok}" ]
+        then
+            error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
+            if [ "${error_code}" = "JOC-400" ]
+            then
+                LogWarning "Version() could not perform operation: ${response_json}"
+                exit 3
+            else
+                LogError "Version() failed: ${response_json}"
+                exit 4
+            fi
+        fi
+    else
+        LogError "Version() failed: ${response_json}"
+        exit 4
+    fi
+
+    if [ "${list}" -eq 0 ]
+    then
+        if [ -n "${agent_id}" ]
+        then
+            version=$(echo "${response_json}" | jq -r '.agentVersions[0].version // empty')
+        else
+            if [ -n "${controller_id}" ]
+            then
+                version=$(echo "${response_json}" | jq -r '.controllerVersions[0].version // empty')
+            else
+                version=$(echo "${response_json}" | jq -r '.jocVersion // empty')
+            fi
+         fi
+         
+         Log "${version}"
+    else
+        Log "${response_json}"
+    fi
+}
+
 Encrypt()
 {
     in_string="$1"
@@ -1106,13 +1190,14 @@ Usage()
     >&"$1" echo "    cancel              --controller-id [--controller-url]"
     >&"$1" echo "    cancel-restart      --controller-id [--controller-url]"
     >&"$1" echo "    status              --controller-id [--controller-url]"
+    >&"$1" echo "    version            [--controller-id] [--agent-id] [--list]"
     >&"$1" echo "    check               --controller-id  --controller-url"
     >&"$1" echo "    switch-over         --controller-id"
     >&"$1" echo "    appoint-nodes       --controller-id"
     >&"$1" echo "    confirm-loss        --controller-id"
     >&"$1" echo "    enable-agent        --controller-id --agent-id"
     >&"$1" echo "    disable-agent       --controller-id --agent-id"
-    >&"$1" echo "    status-agent        --controller-id --agent-id [--state] [--no-hidden]"
+    >&"$1" echo "    status-agent        --controller-id [--agent-id] [--state] [--no-hidden]"
     >&"$1" echo "    reset-agent         --controller-id --agent-id [--force]"
     >&"$1" echo "    switch-over-agent   --controller-id --agent-id"
     >&"$1" echo "    confirm-loss-agent  --controller-id --agent-id"
@@ -1154,13 +1239,14 @@ Usage()
     >&"$1" echo "    -v | --verbose                     | displays verbose output, repeat to increase verbosity"
     >&"$1" echo "    -p | --password                    | asks for password"
     >&"$1" echo "    -k | --key-password                | asks for key password"
+    >&"$1" echo "    -l | --list                        | lists version information in JSON format"
     >&"$1" echo "    -o | --switch-over                 | switches over the active role to the standby instance"
     >&"$1" echo "    -f | --force                       | forces reset on Agent"
     >&"$1" echo "    --no-hidden                        | suppresses hidden Agents"
     >&"$1" echo "    --show-logs                        | shows log output if --log-dir is used"
     >&"$1" echo "    --make-dirs                        | creates directories if they do not exist"
     >&"$1" echo ""
-    >&"$1" echo "see https://kb.sos-berlin.com/x/9YZvCQ"
+    >&"$1" echo "see https://kb.sos-berlin.com/x/-YZvCQ"
     >&"$1" echo ""
 }
 
@@ -1175,7 +1261,7 @@ Arguments()
     fi
 
     case "$1" in
-        terminate|restart|cancel|cancel-restart|status|check|switch-over|appoint-nodes|confirm-loss|enable-agent|disable-agent|status-agent|reset-agent|confirm-loss-agent|switch-over-agent|enable-subagent|disable-subagent|reset-subagent|encrypt|decrypt) action=$1
+        terminate|restart|cancel|cancel-restart|status|version|check|switch-over|appoint-nodes|confirm-loss|enable-agent|disable-agent|status-agent|reset-agent|confirm-loss-agent|switch-over-agent|enable-subagent|disable-subagent|reset-subagent|encrypt|decrypt) action=$1
                                     ;;
         -h|--help)                  Usage 1
                                     exit
@@ -1247,6 +1333,8 @@ Arguments()
                                     ;;
             -k|--key-password)      AskKeyPassword
                                     ;;
+            -l|--list)              list=1
+                                    ;;
             -s|--switch-over)       switch_over=true
                                     ;;
             -f|--force)             force=true
@@ -1257,7 +1345,7 @@ Arguments()
                                     ;;
             --show-logs)            show_logs=1
                                     ;;
-            terminate|restart|cancel|cancel-restart|status|check|switch-over|appoint-nodes|confirm-loss|enable-agent|disable-agent|status-agent|reset-agent|confirm-loss-agent|switch-over-agent|enable-subagent|disable-subagent|reset-subagent|encrypt|decrypt) action=$1
+            terminate|restart|cancel|cancel-restart|status|version|check|switch-over|appoint-nodes|confirm-loss|enable-agent|disable-agent|status-agent|reset-agent|confirm-loss-agent|switch-over-agent|enable-subagent|disable-subagent|reset-subagent|encrypt|decrypt) action=$1
                                     ;;
             *)                      Usage 2
                                     >&2 echo "unknown option: ${option}"
@@ -1336,7 +1424,7 @@ Arguments()
         fi
     fi
 
-    actions="|enable-agent|disable-agent|status-agent|reset-agent|confirm-loss-agent|switch-over-agent|"
+    actions="|enable-agent|disable-agent|reset-agent|confirm-loss-agent|switch-over-agent|"
     if [[ "${actions}" == *"|${action}|"* ]] && [ -z "${agent_id}" ]
     then
         Usage 2
@@ -1527,6 +1615,8 @@ Process()
                             ;;
         status)             Status_Controller
                             ;;
+        version)            Version
+                            ;;
         check)              Check_Controller
                             ;;
         switch-over)        Switchover_Controller
@@ -1610,10 +1700,11 @@ End()
     unset agent_id
     unset subagent_id
     unset state
-    unset agent_states
     unset switch_over
     unset force
     unset no_hidden
+    unset version
+    unset list
 
     unset cert_file
     unset key_file

@@ -1,17 +1,50 @@
 #!/bin/bash
 
 # set common options for connection to the JS7 REST Web Service
-request_options=(--url=http://joc-2-0-primary.sos:7446 --user=root --password=root --controller-id=testsuite --ca-cert=./root-ca.crt)
+request_options=(--url=http://joc-2-0-primary.sos:7446 --user=root --password=root --ca-cert=./root-ca.crt)
 
 # ------------------------------ Status ----------
 
 # get status information
-./operate-joc.sh status "${request_options[@]}"
+./operate-joc.sh status "${request_options[@]}" --controller-id=testsuite
+
+# ------------------------------ Switch-over ----------
+
+# switch-over active role
+./operate-joc.sh switch-over "${request_options[@]}" --controller-id=testsuite
+
+# ------------------------------ Restart / Run Service ----------
+
+# restart service: cluster, history, dailyplan, cleanup, monitor
+./operate-joc.sh restart-service "${request_options[@]}" --service-type=dailyplan
+
+# run service: dailyplan, cleanup
+./operate-joc.sh run-service "${request_options[@]}" --service-type=dailyplan
+
+# ------------------------------ Settings ----------
+
+# get settings
+settings=$(./operate-joc.sh get-settings "${request_options[@]}")
+
+# update settings
+settings=$(echo "${settings}" | jq '.dailyplan.projections_month_ahead.value = "19"')
+
+# store settings
+./operate-joc.sh store-settings "${request_options[@]}" --settings="${settings}"
 
 # ------------------------------ License ----------
 
 # check license
 ./operate-joc.sh check-license "${request_options[@]}"
+
+# ------------------------------ Version ----------
+
+# get version
+./operate-joc.sh version "${request_options[@]}"
+./operate-joc.sh version "${request_options[@]}" --controller-id=testsuite
+./operate-joc.sh version "${request_options[@]}" --agent-id=StandaloneAgentHttpId
+./operate-joc.sh version "${request_options[@]}" --agent-id=MyAgentClusterId_01
+./operate-joc.sh version "${request_options[@]}" --controller-id=standalone --agent-id=agent_003
 
 # ------------------------------ Encrypted Passwords ----------
 
