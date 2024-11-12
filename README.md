@@ -19,3 +19,13 @@ Unix Shell CLI for JS7 REST Web Service API
     * Workflows: suspend, resume
     * Jobs and Instructions: stop, unstop, skip, unskip
     * Notices: post, get, delete
+* JOC Cockpit Status Operations
+    * status, status-agent, health-check, version
+    * switch-over, restart service, run service
+    * check license, get settings, store settings
+* Identity Service Deployment
+    * Identity Services: store, rename, remove
+    * Roles: store, rename, remove
+    * Permissions: set, rename, remove
+    * Folder Permissions: set, rename, remove
+    * Accounts: store, remove, set/reset password, enable, disable, block, unblock
