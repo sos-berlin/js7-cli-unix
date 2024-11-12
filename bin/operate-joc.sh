@@ -42,13 +42,19 @@ response_json=
 access_token=
 
 controller_id=
+whatif_shutdown=
 validity_days=60
 service_type=
 member_id=
 version=
 agent_id=
 settings=
-list=0
+json=0
+
+agent_id=
+agent_state=
+agent_cluster=0
+no_hidden=false
 
 key_file=
 cert_file=
@@ -550,9 +556,10 @@ Check_License()
     fi
 }
 
-Status_JOC()
+Status()
 {
-    LogVerbose ".. Status_JOC()"
+    raw=$1
+    LogVerbose ".. Status()"
     Curl_Options
 
     request_body="{ \"controllerId\": \"${controller_id}\"" 
@@ -564,7 +571,13 @@ Status_JOC()
     LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/controller/components"
     response_json=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/controller/components)    
     LogVerbose ".... response:"
-    Log "${response_json}"
+    
+    if [ "${raw}" -eq 1 ]
+    then
+        Log "${response_json}"
+    else
+        LogVerbose "${response_json}"
+    fi
 
     if echo "${response_json}" | jq -e . >/dev/null 2>&1
     then
@@ -574,18 +587,531 @@ Status_JOC()
             error_code=$(echo "${response_json}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
             if [ "${error_code}" = "JOC-400" ]
             then
-                LogWarning "Status_JOC() could not perform operation: ${response_json}"
+                LogWarning "Status() could not perform operation: ${response_json}"
                 exit 3
             else
-                LogError "Status_JOC() failed: ${response_json}"
+                LogError "Status() failed: ${response_json}"
                 exit 4
             fi
         fi
     else
-        LogError "Status_JOC() failed: ${response_json}"
+        LogError "Status() failed: ${response_json}"
         exit 4
     fi
 }
+
+Status_Agent()
+{
+    raw=$1
+    LogVerbose ".. Status_Agent()"
+    Curl_Options
+
+    request_body="{ \"controllerId\": \"${controller_id}\""
+
+    if [ -n "${agent_id}" ]
+    then
+        request_body="${request_body}, \"agentIds\": ["
+        comma=
+        set -- "$(echo "${agent_id}" | sed -r 's/[,]+/ /g')"
+        for i in $@; do
+            request_body="${request_body}${comma} \"${i}\""
+            comma=,
+        done
+        request_body="${request_body} ]"
+    fi
+
+    if [ -n "${agent_state}" ]
+    then
+        request_body="${request_body}, \"states\": ["
+        comma=
+        set -- "$(echo "${agent_state}" | sed -r 's/[,]+/ /g')"
+        for i in $@; do
+            request_body="${request_body}${comma} \"${i}\""
+            comma=,
+        done
+        request_body="${request_body} ]"
+    fi
+
+    request_body="${request_body}, \"onlyVisibleAgents\": ${no_hidden}"
+
+    Audit_Log_Request
+    request_body="${request_body} }"
+
+    LogVerbose ".... request:"
+    LogVerbose "curl ${curl_log_options[*]} -H \"X-Access-Token: ${access_token}\" -H \"Accept: application/json\" -H \"Content-Type: application/json\" -d ${request_body} ${joc_url}/joc/api/agents"
+    response_json_agent=$(curl "${curl_options[@]}" -H "X-Access-Token: ${access_token}" -H "Accept: application/json" -H "Content-Type: application/json" -d "${request_body}" "${joc_url}"/joc/api/agents)    
+    LogVerbose ".... response:"
+    LogVerbose "${response_json_agent}"
+
+    if echo "${response_json_agent}" | jq -e . >/dev/null 2>&1
+    then
+        ok=$(echo "${response_json_agent}" | jq -r '.agents // empty' | sed 's/^"//' | sed 's/"$//')
+        if [ -z "${ok}" ]
+        then
+            error_code=$(echo "${response_json_agent}" | jq -r '.error.code // empty' | sed 's/^"//' | sed 's/"$//')
+            if [ "${error_code}" = "JOC-400" ]
+            then
+                LogWarning "Status_Agent() could not perform operation: ${response_json_agent}"
+                exit 3
+            else
+                LogError "Status_Agent() failed: ${response_json_agent}"
+                exit 4
+            fi
+        fi
+    else
+        LogError "Status_Agent() failed: ${response_json_agent}"
+        exit 4
+    fi
+
+    if [ "${agent_cluster}" -eq 1 ]
+    then
+        response_json_agent=$(echo "${response_json_agent}" |  jq -r '.agents[] | select(.clusterState.severity != null) | { "agents": [.] } // empty' | jq -c)
+    fi
+
+    if [ "${raw}" -eq 1 ]
+    then
+        Log "${response_json_agent}"
+    fi
+}
+
+Health_Check_Database()
+{
+    LogVerbose ".. Health_Check_Database()"
+
+    database_dbms=$(echo "${response_json}" | jq -r '.database.dbms // empty')
+    database_version=$(echo "${response_json}" | jq -r '.database.version // empty')
+    component_state_text=$(echo "${response_json}" | jq -r '.database.componentState._text // empty')
+    component_state_severity=$(echo "${response_json}" | jq -r '.database.componentState.severity // empty')
+    connection_state_text=$(echo "${response_json}" | jq -r '.database.connectionState._text // empty')
+    connection_state_severity=$(echo "${response_json}" | jq -r '.database.connectionState.severity // empty')
+
+    Log "Database: ${database_dbms} ${database_version}"
+    Log "    Component State    : ${component_state_text} (${component_state_severity})"
+    Log "    Connection State   : ${connection_state_text} (${connection_state_severity})"
+
+    if [ "${component_state_severity}" -eq 1 ]
+    then
+        LogWarning "Unhealthy Component State: ${component_state_text} ($component_state_severity)"
+        count_unhealthy=$((count_unhealthy+1))
+    fi
+
+    if [ "${component_state_severity}" -gt 1 ]
+    then
+        LogError "Fatal Component State: ${component_state_text} ($component_state_severity)"
+        count_fatal=$((count_fatal+1))
+    fi
+
+    if [ "${connection_state_severity}" -gt 1 ]
+    then
+        LogWarning "Unhealthy Connection State: $database_connection_state_severity} ($connection_state_severity)"
+        count_unhealthy=$((count_unhealthy+1))
+    fi
+
+    if [ "${connection_state_severity}" -gt 1 ]
+    then
+        LogError "Fatal Connection State: $database_connection_state_severity} ($connection_state_severity)"
+        count_fatal=$((count_fatal+1))
+    fi
+}
+
+Health_Check_JOC()
+{
+    LogVerbose ".. Health_Check_JOC()"
+    count_joc=$(echo "${response_json}" | jq '.jocs | length // empty')
+
+    for ((i=0; i<"${count_joc}"; i++)); do
+        survey_date=$(echo "${response_json}" | jq -r '.deliveryDate // empty')
+        host=$(echo "${response_json}" | jq -r '.jocs['$i'].host // empty')
+        url=$(echo "${response_json}" | jq -r '.jocs['$i'].url // empty')
+        title=$(echo "${response_json}" | jq -r '.jocs['$i'].title // empty')
+        current=$(echo "${response_json}" | jq -r '.jocs['$i'].current // empty')
+        cluster_node_state_text=$(echo "${response_json}" | jq -r '.jocs['$i'].clusterNodeState._text // empty')
+        cluster_node_state_severity=$(echo "${response_json}" | jq -r '.jocs['$i'].clusterNodeState.severity // empty')
+        component_state_text=$(echo "${response_json}" | jq -r '.jocs['$i'].componentState._text // empty')
+        component_state_severity=$(echo "${response_json}" | jq -r '.jocs['$i'].componentState.severity // empty')
+        connection_state_text=$(echo "${response_json}" | jq -r '.jocs['$i'].connectionState._text // empty')
+        connection_state_severity=$(echo "${response_json}" | jq -r '.jocs['$i'].connectionState.severity // empty')
+
+        Log "JOC Cockpit: ${title}, URL: ${url}, Date: ${survey_date}"
+        Log "    Cluster Node State: ${cluster_node_state_text} ($cluster_node_state_severity)"
+        Log "    Component State:    ${component_state_text} (${component_state_severity})"
+        Log "    Connection State:   ${connection_state_text} (${connection_state_severity})"
+
+        if [ "${cluster_node_state_severity}" -eq 0 ]
+        then
+            count_active_joc=$((count_active_joc+1))
+        fi
+
+        if [ "${cluster_node_state_severity}" -gt 1 ]
+        then
+            LogWarning "Unhealthy Cluster Node State: ${cluster_node_state_text} ($cluster_node_state_severity)"
+            count_unhealthy=$((count_unhealthy+1))
+        fi
+
+        if [ "${component_state_severity}" -gt 0 ]
+        then
+            LogWarning "Unhealthy Component State: ${component_state_text} ($component_state_severity)"
+            count_unhealthy=$((count_unhealthy+1))
+        fi
+
+        if [ "${connection_state_severity}" -gt 0 ]
+        then
+            LogWarning "Unhealthy Connection State: ${connection_state_severity} ($connection_state_severity)"
+            count_unhealthy=$((count_unhealthy+1))
+        fi
+        
+        if [ -n "${whatif_shutdown}" ]
+        then
+            host_found=0
+            replacement_found=0
+            set -- "$(echo "${whatif_shutdown}" | sed -r 's/[,]+/ /g')"
+            for h in $@; do
+                if [ "$h" = "$host" ]
+                then
+                    host_found=$((host_found+1))
+                    for ((j=0; j<"${count_joc}"; j++)); do
+                        if [ "$i" -ne "$j" ]
+                        then
+                            other_host=$(echo "${response_json}" | jq -r '.jocs['$j'].host // empty')
+                            if [[ ! " ${*} " =~ [[:space:]]${other_host}[[:space:]] ]]
+                            then
+                                other_cluster_node_state_severity=$(echo "${response_json}" | jq -r '.jocs['$j'].clusterNodeState.severity // empty')
+                                if [ "${other_cluster_node_state_severity}" -eq 0 ] || [ "${other_cluster_node_state_severity}" -eq 1 ]
+                                then
+                                    replacement_found=$((replacement_found+1))
+                                    break
+                                fi
+                            fi
+                        fi
+                    done
+                    break
+                fi
+            done
+            
+            if [ "${host_found}" -gt 0 ] && [ "${replacement_found}" -lt "${host_found}" ]
+            then
+                count_whatif=$((count_whatif+1))
+                LogWarning "What if host is shutdown: ${whatif_shutdown}: failure"
+            else
+                Log "    What if host is shutdown: ${whatif_shutdown}: ok"
+             fi
+        fi
+    done
+
+    cluster_state_text=$(echo "${response_json}" | jq -r '.clusterState._text // empty')
+    cluster_state_severity=$(echo "${response_json}" | jq -r '.clusterState.severity // empty')
+
+    if [ -n "${cluster_state_text}" ]
+    then
+        if [ "${cluster_state_severity}" -eq 0 ]
+        then
+            Log "JOC Cockpit Cluster State: ${cluster_state_text} (${cluster_state_severity})"
+        else
+            LogWarning "JOC Cockpit Cluster State: ${cluster_state_text} (${cluster_state_severity})"
+        fi
+    fi
+
+    if [ "${count_active_joc}" -eq 0 ]
+    then
+        LogError "Fatal JOC Cockpit Cluster State: no active JOC Cockpit instance found"
+    fi
+}
+
+Health_Check_Controller()
+{
+    LogVerbose ".. Health_Check_Controller()"
+    count_controller=$(echo "${response_json}" | jq '.controllers | length // empty')
+
+    for ((i=0; i<"${count_controller}"; i++)); do
+        survey_date=$(echo "${response_json}" | jq -r '.controllers['$i'].surveyDate // empty')
+        host=$(echo "${response_json}" | jq -r '.controllers['$i'].host // empty')
+        url=$(echo "${response_json}" | jq -r '.controllers['$i'].url // empty')
+        title=$(echo "${response_json}" | jq -r '.controllers['$i'].title // empty')
+        role=$(echo "${response_json}" | jq -r '.controllers['$i'].role // empty')
+        controller_controller_id=$(echo "${response_json}" | jq -r '.controllers['$i'].controllerId // empty')
+        is_coupled=$(echo "${response_json}" | jq -r '.controllers['$i'].isCoupled // empty')
+        cluster_node_state_text=$(echo "${response_json}" | jq -r '.controllers['$i'].clusterNodeState._text // empty')
+        cluster_node_state_severity=$(echo "${response_json}" | jq -r '.controllers['$i'].clusterNodeState.severity // empty')
+        component_state_text=$(echo "${response_json}" | jq -r '.controllers['$i'].componentState._text // empty')
+        component_state_severity=$(echo "${response_json}" | jq -r '.controllers['$i'].componentState.severity // empty')
+        connection_state_text=$(echo "${response_json}" | jq -r '.controllers['$i'].connectionState._text // empty')
+        connection_state_severity=$(echo "${response_json}" | jq -r '.controllers['$i'].connectionState.severity // empty')
+
+        Log "${role} Controller: ${title}, ID: ${controller_controller_id}, URL: ${url}, is coupled: ${is_coupled}, Date: ${survey_date}"
+        Log "    Cluster Node State: ${cluster_node_state_text} ($cluster_node_state_severity)"
+        Log "    Component State:    ${component_state_text} (${component_state_severity})"
+        Log "    Connection State:   ${connection_state_text} (${connection_state_severity})"
+
+        if [ "${cluster_node_state_severity}" -eq 0 ]
+        then
+            count_active_controller=$((count_active_controller+1))
+        fi
+
+        if [ "${cluster_node_state_severity}" -gt 1 ]
+        then
+            LogWarning "Unhealthy Cluster Node State: ${cluster_node_state_text} ($cluster_node_state_severity)"
+            count_unhealthy=$((count_unhealthy+1))
+        fi
+
+        if [ "${component_state_severity}" -gt 0 ]
+        then
+            LogWarning "Unhealthy Component State: ${component_state_text} ($component_state_severity)"
+            count_unhealthy=$((count_unhealthy+1))
+        fi
+
+        if [ "${connection_state_severity}" -gt 0 ]
+        then
+            LogWarning "Unhealthy Connection State: ${connection_state_severity} ($connection_state_severity)"
+            count_unhealthy=$((count_unhealthy+1))
+        fi
+        
+        if [ -n "${whatif_shutdown}" ]
+        then
+            host_found=0
+            replacement_found=0
+            set -- "$(echo "${whatif_shutdown}" | sed -r 's/[,]+/ /g')"
+            for h in $@; do
+                if [ "$h" = "$host" ]
+                then
+                    host_found=$((host_found+1))
+                    for ((j=0; j<"${count_controller}"; j++)); do
+                        if [ "$i" -ne "$j" ]
+                        then
+                            other_host=$(echo "${response_json}" | jq -r '.controllers['$j'].host // empty')
+                            if [[ ! " ${*} " =~ [[:space:]]${other_host}[[:space:]] ]]
+                            then
+                                other_cluster_node_state_severity=$(echo "${response_json}" | jq -r '.controllers['$j'].clusterNodeState.severity // empty')
+                                if [ "${other_cluster_node_state_severity}" -eq 0 ] || [ "${other_cluster_node_state_severity}" -eq 1 ]
+                                then
+                                    replacement_found=$((replacement_found+1))
+                                    break
+                                fi
+                            fi
+                        fi
+                    done
+                    break
+                fi
+            done
+            
+            if [ "${host_found}" -gt 0 ] && [ "${replacement_found}" -lt "${host_found}" ]
+            then
+                count_whatif=$((count_whatif+1))
+                LogWarning "What if host is shutdown: ${whatif_shutdown}: failure"
+            else
+                Log "    What if host is shutdown: ${whatif_shutdown}: ok"
+             fi
+        fi
+    done
+
+    if [ "${count_active_controller}" -eq 0 ]
+    then
+        count_fatal=$((count_fatal+1))
+        LogWarning "Fatal Controller Cluster State: no active Controller instance found"
+    fi
+}
+
+Health_Check_Agent()
+{
+    LogVerbose ".. Health_Check_Agent()"
+
+    count_agent=$(echo "${response_json_agent}" | jq '.agents | length // empty')
+
+    for ((i=0; i<"${count_agent}"; i++)); do
+        agent_survey_date=$(echo "${response_json_agent}" | jq -r '.surveyDate // empty')
+        agent_controller_id=$(echo "${response_json_agent}" | jq -r '.agents['$i'].controllerId // empty')
+        agent_agent_id=$(echo "${response_json_agent}" | jq -r '.agents['$i'].agentId // empty')
+        agent_name=$(echo "${response_json_agent}" | jq -r '.agents['$i'].agentName // empty')
+
+        length=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents | length // empty')
+        if [ "${length}" -eq 0 ]
+        then
+            role=STANDALONE
+            agent_host=$(echo "${response_json_agent}" | jq -r '.agents['$i'].url // empty' | cut -d'/' -f3 | cut -d':' -f1)
+            agent_url=$(echo "${response_json_agent}" | jq -r '.agents['$i'].url // empty')
+            agent_disabled=$(echo "${response_json_agent}" | jq -r '.agents['$i'].disabled // empty')
+            agent_component_state_text=$(echo "${response_json_agent}" | jq -r '.agents['$i'].state._text // empty')
+            agent_component_state_severity=$(echo "${response_json_agent}" | jq -r '.agents['$i'].state.severity // empty')
+
+            Log "${role} Agent: ${agent_name}, ID: ${agent_agent_id}, URL: ${agent_url}, Controller ID: ${agent_controller_id,}, Disabled: ${agent_disabled}, Date: ${agent_survey_date}"
+            Log "    Component State:    ${agent_component_state_text} (${agent_component_state_severity})"
+
+            if [ "${agent_component_state_severity}" -gt 0 ]
+            then
+                LogWarning "Fatal Component State: ${agent_component_state_text} ($agent_component_state_severity)"
+                count_fatal=$((count_fatal+1))
+            fi
+        else
+            role=CLUSTER
+            agent_cluster_primary_component_state_text=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "PRIMARY_DIRECTOR").state._text // empty')
+            agent_cluster_primary_component_state_severity=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "PRIMARY_DIRECTOR").state.severity // empty')
+            agent_cluster_primary_node_state_text=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "PRIMARY_DIRECTOR").clusterNodeState._text // empty')
+            agent_cluster_primary_node_state_severity=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "PRIMARY_DIRECTOR").clusterNodeState.severity // empty')
+            agent_cluster_primary_subagent_id=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "PRIMARY_DIRECTOR").subagentId // empty')
+            agent_cluster_primary_url=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "PRIMARY_DIRECTOR").url // empty')
+            agent_cluster_primary_host=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "PRIMARY_DIRECTOR").url // empty' | cut -d'/' -f3 | cut -d':' -f1)
+
+            agent_cluster_secondary_component_state_text=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "SECONDARY_DIRECTOR").state._text // empty')
+            agent_cluster_secondary_component_state_severity=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "SECONDARY_DIRECTOR").state.severity // empty')
+            agent_cluster_secondary_node_state_text=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "SECONDARY_DIRECTOR").clusterNodeState._text // empty')
+            agent_cluster_secondary_node_state_severity=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "SECONDARY_DIRECTOR").clusterNodeState.severity // empty')
+            agent_cluster_secondary_subagent_id=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "SECONDARY_DIRECTOR").subagentId // empty')
+            agent_cluster_secondary_url=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "SECONDARY_DIRECTOR").url // empty')
+            agent_cluster_secondary_host=$(echo "${response_json_agent}" | jq -r '.agents['$i'].subagents[] | select(.isDirector == "SECONDARY_DIRECTOR").url // empty' | cut -d'/' -f3 | cut -d':' -f1)
+
+            Log "${role} Agent: ${agent_name}, ID: ${agent_agent_id}, Controller ID: ${agent_controller_id}, Date: ${agent_survey_date}"
+            Log "  PRIMARY DIRECTOR:     Subagent ID: ${agent_cluster_primary_subagent_id}, URL: ${agent_cluster_primary_url}"
+            Log "    Cluster Node State: ${agent_cluster_primary_node_state_text} ($agent_cluster_primary_node_state_severity)"
+            Log "    Component State:    ${agent_cluster_primary_component_state_text} (${agent_cluster_primary_component_state_severity})"
+            Log "  SECONDARY DIRECTOR:   Subagent ID: ${agent_cluster_secondary_subagent_id}, URL: ${agent_cluster_secondary_url}"
+            Log "    Cluster Node State: ${agent_cluster_secondary_node_state_text} ($agent_cluster_secondary_node_state_severity)"
+            Log "    Component State:    ${agent_cluster_secondary_component_state_text} (${agent_cluster_secondary_component_state_severity})"
+
+            if [ "${agent_cluster_primary_node_state_severity}" -gt 0 ] && [ "${agent_cluster_secondary_node_state_severity}" -gt 0 ]
+            then
+                LogWarning "Fatal Agent Cluster State: no active Director Agent instance found"
+                count_fatal=$((count_fatal+1))
+            fi
+
+            if [ "${agent_cluster_primary_node_state_severity}" -gt 1 ]
+            then
+                LogWarning "Unhealthy Agent Cluster Primary Director Node State: ${agent_cluster_primary_node_state_text} ($agent_cluster_primary_node_state_severity)"
+                count_unhealthy=$((count_unhealthy+1))
+            fi
+
+            if [ "${agent_cluster_primary_component_state_severity}" -gt 0 ]
+            then
+                LogWarning "Unhealthy Component State: ${agent_cluster_primary_component_state_text} ($agent_cluster_primary_component_state_severity)"
+                count_unhealthy=$((count_unhealthy+1))
+            fi
+        
+            if [ "${agent_cluster_secondary_node_state_severity}" -gt 1 ]
+            then
+                LogWarning "Unhealthy Agent Cluster Secondary Director Node State: ${agent_cluster_secondary_node_state_text} ($agent_cluster_secondary_node_state_severity)"
+                count_unhealthy=$((count_unhealthy+1))
+            fi
+
+            if [ "${agent_cluster_secondary_component_state_severity}" -gt 0 ]
+            then
+                LogWarning "Unhealthy Component State: ${agent_cluster_secondary_component_state_text} ($agent_cluster_secondary_component_state_severity)"
+                count_unhealthy=$((count_unhealthy+1))
+            fi        
+
+            agent_cluster_controller_active=$(echo "${response_json}" | jq -r --arg agent_controller_id "$agent_controller_id" '.controllers[] | select(.controllerId == $agent_controller_id) | select(.clusterNodeState.severity == 0) // empty')
+            if [ -z "${agent_cluster_controller_active}" ]
+            then
+                count_fatal=$((count_fatal+1))
+                LogWarning "Fatal Agent Cluster State: no active Controller instance found"
+            fi
+
+            if [ -n "${whatif_shutdown}" ]
+            then
+                host_found=0
+                set -- "$(echo "${whatif_shutdown}" | sed -r 's/[,]+/ /g')"
+                for h in $@; do
+                    if [ "$h" = "${agent_cluster_primary_host}" ] 
+                    then
+                        host_found=$((host_found+1))
+
+                        if [ "${agent_cluster_secondary_node_state_severity}" -gt 1 ]
+                        then
+                            host_found=$((host_found+1))
+                        fi
+
+                        if [ "${agent_cluster_primary_node_state_severity}" -gt 0 ] && [ "${agent_cluster_secondary_node_state_severity}" -gt 0 ]
+                        then
+                            host_found=$((host_found+1))
+                        fi
+                    fi    
+
+                    if [ "$h" = "${agent_cluster_secondary_host}" ]
+                    then
+                        host_found=$((host_found+1))
+
+                        if [ "${agent_cluster_primary_node_state_severity}" -gt 1 ]
+                        then
+                            host_found=$((host_found+1))
+                        fi
+
+                        if [ "${agent_cluster_primary_node_state_severity}" -gt 0 ] && [ "${agent_cluster_secondary_node_state_severity}" -gt 0 ]
+                        then
+                            host_found=$((host_found+1))
+                        fi
+                    fi    
+                done                
+
+                if [ "${host_found}" -gt 1 ] 
+                then
+                    LogWarning "What if host is shutdown: ${whatif_shutdown}: failure"
+                    count_whatif=$((count_whatif+1))
+                else
+                    Log "  What if host is shutdown: ${whatif_shutdown}: ok"
+                fi
+            fi
+        fi
+    done
+}
+
+Health_Check()
+{
+    LogVerbose ".. Health_Check()"
+    Status 0
+    Status_Agent 0
+
+    count_active_joc=0
+    count_active_controller=0
+
+    count_fatal=0
+    count_unhealthy=0
+    count_whatif=0
+
+    # simulate JOC Cockpit standby instances
+    #     response_json=$(echo "$response_json" | jq '.jocs[0].clusterNodeState.severity = 1')
+    #     response_json=$(echo "$response_json" | jq '.jocs[1].clusterNodeState.severity = 1')
+    # simulate Controller standby instances
+    #   response_json=$(echo "$response_json" | jq '.controllers[0].clusterNodeState.severity = 1')
+    #   response_json=$(echo "$response_json" | jq '.controllers[1].clusterNodeState.severity = 1')
+    # simulate Agent standby instances
+    #   response_json_agent=$(echo "$response_json_agent" | jq '.agents[2].subagents[0].clusterNodeState.severity = 1')
+    #   response_json_agent=$(echo "$response_json_agent" | jq '.agents[2].subagents[1].clusterNodeState.severity = 1')
+
+    Health_Check_Database
+    Health_Check_JOC
+    Health_Check_Controller
+    Health_Check_Agent
+
+    if [ -n "${whatif_shutdown}" ]
+    then
+        if [ "${count_fatal}" -gt 0 ]
+        then
+            LogWarning "health check identified ${count_fatal} fatal problems"
+        else
+            if [ "${count_unhealthy}" -gt 0 ]
+            then
+                LogWarning "health check identified ${count_unhealthy} non-fatal problems"
+            fi
+        fi
+
+        if [ "${count_whatif}" -gt 0 ]
+        then
+            LogError "health check identified ${count_whatif} problems if host is shutdown: ${whatif_shutdown}"
+            exit 3
+        else
+            Log "health check identified no problem if host is shutdown: ${whatif_shutdown}"
+        fi
+    else
+        if [ "${count_fatal}" -gt 0 ]
+        then
+            LogError "health check identified ${count_fatal} fatal problems"
+            exit 2
+        else
+            if [ "${count_unhealthy}" -gt 0 ]
+            then
+                LogWarning "health check identified ${count_unhealthy} non-fatal problems"
+                exit 3
+            fi
+        fi
+    fi
+}    
 
 Version()
 {
@@ -650,7 +1176,7 @@ Version()
         exit 4
     fi
 
-    if [ "${list}" -eq 0 ]
+    if [ "${json}" -eq 0 ]
     then
         if [ -n "${agent_id}" ]
         then
@@ -733,7 +1259,9 @@ Usage()
     >&"$1" echo ""
     >&"$1" echo "  Commands:"
     >&"$1" echo "    status              --controller-id"
-    >&"$1" echo "    version            [--controller-id] [--agent-id] [--list]"
+    >&"$1" echo "    status-agent        --controller-id  [--agent-id] [--agent-state] [--agent-cluster] [--no-hidden]"
+    >&"$1" echo "    health-check        --controller-id  [--agent-id] [--agent-state] [--agent-cluster] [--no-hidden] [--whatif-shutdown]"
+    >&"$1" echo "    version            [--controller-id] [--agent-id] [--json]"
     >&"$1" echo "    switch-over         --controller-id"
     >&"$1" echo "    restart-service     --service-type"
     >&"$1" echo "    run-service         --service-type"
@@ -752,10 +1280,13 @@ Usage()
     >&"$1" echo "    --client-key=<path>                | optional: path to Client Key used for login"
     >&"$1" echo "    --timeout=<seconds>                | optional: timeout for request, default: ${timeout}"
     >&"$1" echo "    --controller-id=<id>               | optional: Controller ID"
-    >&"$1" echo "    --agent-id=<id[,id]>               | optional: Agent IDs"
+    >&"$1" echo "    --agent-id=<id[,id]>               | optional: Agent ID"
+    >&"$1" echo "    --agent-state=<state[,state]>      | optional: Agent state filters such as"
+    >&"$1" echo "                                                   COUPLED, RESETTING, RESET, INITIALISED, COUPLINGFAILED, SHUTDOWN"
     >&"$1" echo "    --service-type=<identifier>        | optional: service for restart such as cluster, history, dailyplan, cleanup, monitor"
     >&"$1" echo "    --validity-days=<number>           | optional: number of days for validity of license, default: ${validity_days}"
     >&"$1" echo "    --settings=<json>                  | optional: settings to be stored from JSON"
+    >&"$1" echo "    --whatif-shutdown=<host[,host]>    | optional: health status if hosts will be shutdown"
     >&"$1" echo "    --key=<path>                       | optional: path to private key file in PEM format"
     >&"$1" echo "    --key-password=<password>          | optional: password for private key file"
     >&"$1" echo "    --cert=<path>                      | optional: path to certificate file in PEM format"
@@ -774,7 +1305,9 @@ Usage()
     >&"$1" echo "    -v | --verbose                     | displays verbose output, repeat to increase verbosity"
     >&"$1" echo "    -p | --password                    | asks for password"
     >&"$1" echo "    -k | --key-password                | asks for key password"
-    >&"$1" echo "    -l | --list                        | lists version information in JSON format"
+    >&"$1" echo "    -j | --json                        | returns version information in JSON format"
+    >&"$1" echo "    --agent-cluster                    | filters non-clustered Agents"
+    >&"$1" echo "    --no-hidden                        | filters hidden Agents"
     >&"$1" echo "    --show-logs                        | shows log output if --log-dir is used"
     >&"$1" echo "    --make-dirs                        | creates directories if they do not exist"
     >&"$1" echo ""
@@ -793,7 +1326,7 @@ Arguments()
     fi
 
     case "$1" in
-        status|switch-over|restart-service|run-service|get-settings|store-settings|check-license|version|encrypt|decrypt) action=$1
+        status|status-agent|health-check|switch-over|restart-service|run-service|get-settings|store-settings|check-license|version|encrypt|decrypt) action=$1
                                     ;;
         -h|--help)                  Usage 1
                                     exit
@@ -825,11 +1358,15 @@ Arguments()
                                     ;;
             --agent-id=*)           agent_id=$(echo "${option}" | sed 's/--agent-id=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
+            --agent-state=*)        agent_state=$(echo "${option}" | sed 's/--agent-state=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
+                                    ;;
             --settings=*)           settings=$(echo "${option}" | sed 's/--settings=//')
                                     ;;
             --service-type=*)       service_type=$(echo "${option}" | sed 's/--service-type=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
             --validity-days=*)      validity_days=$(echo "${option}" | sed 's/--validity-days=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
+                                    ;;
+            --whatif-shutdown=*)    whatif_shutdown=$(echo "${option}" | sed 's/--whatif-shutdown=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
             --key=*)                key_file=$(echo "${option}" | sed 's/--key=//' | sed 's/^"//' | sed 's/"$//' | sed 's/^\(.*\)\/$/\1/')
                                     ;;
@@ -865,13 +1402,17 @@ Arguments()
                                     ;;
             -k|--key-password)      AskKeyPassword
                                     ;;
-            -l|--list)              list=1
+            -l|--json)              json=1
+                                    ;;
+            --agent-cluster)        agent_cluster=1
+                                    ;;
+            --no-hidden)            no_hidden=true
                                     ;;
             --make-dirs)            make_dirs=1
                                     ;;
             --show-logs)            show_logs=1
                                     ;;
-            status|switch-over|restart-service|run-service|get-settings|store-settings|check-license|version|encrypt|decrypt) action=$1
+            status|status-agent|health-check|switch-over|restart-service|run-service|get-settings|store-settings|check-license|version|encrypt|decrypt) action=$1
                                     ;;
             *)                      Usage 2
                                     >&2 echo "unknown option: ${option}"
@@ -932,7 +1473,7 @@ Arguments()
         fi
     fi
 
-    actions="|status|switch-over|"
+    actions="|status|status-agent|health-check|switch-over|"
     if [[ "${actions}" == *"|${action}|"* ]] && [ -z "${controller_id}" ]
     then
         Usage 2
@@ -1127,7 +1668,11 @@ Process()
     fi
 
     case "${action}" in
-        status)             Status_JOC
+        status)             Status 1
+                            ;;
+        status-agent)       Status_Agent 1
+                            ;;
+        health-check)       Health_Check
                             ;;
         switch-over)        Switch_Over
                             ;;
@@ -1196,6 +1741,7 @@ End()
 
     unset controller_id
 
+    unset whatif_shutdown
     unset validity_days
     unset license_type
     unset license_valid
@@ -1210,7 +1756,12 @@ End()
     unset version
     unset agent_id
     unset settings
-    unset list
+    unset json
+
+    unset agent_id
+    unset agent_state
+    unset agent_cluster
+    unset no_hidden
 
     unset cert_file
     unset key_file

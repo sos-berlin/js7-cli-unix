@@ -5,8 +5,22 @@ request_options=(--url=http://joc-2-0-primary.sos:7446 --user=root --password=ro
 
 # ------------------------------ Status ----------
 
-# get status information
+# get status information on JOC Cockpit and Controller instances
 ./operate-joc.sh status "${request_options[@]}" --controller-id=testsuite
+
+# get status informaiton on Agents
+./operate-joc.sh status-agent "${request_options[@]}" --controller-id=testsuite
+
+# get status informiaton on Agents limited by state
+./operate-joc.sh status-agent "${request_options[@]}" --controller-id=testsuite --agent-id=agent_001,agent_002
+
+# ------------------------------ Health Check ----------
+
+# perform health check
+./operate-joc.sh health-check "${request_options[@]}" --controller-id=testsuite
+
+# perform health check for host shutdown scenario
+./operate-joc.sh health-check "${request_options[@]}" --controller-id=testsuite --agent-cluster --whatif-shutdown=joc-2-0-primary
 
 # ------------------------------ Switch-over ----------
 
